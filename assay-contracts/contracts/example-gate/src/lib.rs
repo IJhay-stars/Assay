@@ -68,6 +68,12 @@ pub const DEFAULT_MAX_SEVERITY: u32 = MAX_SEVERITY;
 
 /// How stale an attestation may be before this gate stops trusting it.
 ///
+/// Freshness is inclusive at the boundary: an attestation is trusted while
+/// `now - attested_at <= MAX_ATTESTATION_AGE` (strictly stale when
+/// `now - attested_at > MAX_ATTESTATION_AGE`). An attestation evaluated at
+/// exactly `attested_at + MAX_ATTESTATION_AGE` (86,400s) is fresh and admitted;
+/// at `attested_at + MAX_ATTESTATION_AGE + 1` (86,401s) it is stale and refused.
+///
 /// Twenty-four hours is this contract's policy, not Assay's. The registry
 /// exposes `attested_at` and takes the tolerance as a parameter precisely
 /// because a deposit gate and a large settlement should not be forced to agree.

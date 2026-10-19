@@ -137,6 +137,44 @@ fn stale_attestation_is_refused() {
     );
 }
 
+/// Boundary tests for attestation freshness: the window is inclusive at the
+/// boundary. At exactly `attested_at + MAX_ATTESTATION_AGE` (+86,400s), the
+/// attestation is still fresh and deposit succeeds. At `attested_at +
+/// MAX_ATTESTATION_AGE + 1` (+86,401s), it is stale and refused.
+#[test]
+fn attestation_freshness_boundary_exact_and_plus_one() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    // Attestation created at ledger timestamp 1_000_000
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    // Case 1: Exactly on the boundary (attested_at + MAX_ATTESTATION_AGE, +86400s).
+    // Age is exactly MAX_ATTESTATION_AGE: now - attested_at == 86400 <= 86400, so admitted.
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE);
+
+    assert!(f.gate.would_admit(&asset));
+    f.gate.deposit(&asset, &user, &100);
+    assert_eq!(f.gate.balance(&asset, &user), 100);
+
+    // Case 2: Exactly one second past the boundary (attested_at + MAX_ATTESTATION_AGE + 1, +86401s).
+    // Age exceeds MAX_ATTESTATION_AGE: now - attested_at == 86401 > 86400, so refused as stale.
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE + 1);
+
+    assert!(!f.gate.would_admit(&asset));
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &50),
+        Err(Ok(Error::AttestationStale))
+    );
+    // Balance remains unchanged from before the stale deposit attempt.
+    assert_eq!(f.gate.balance(&asset, &user), 100);
+}
+
 /// A re-attestation must be able to close a gate that was previously open.
 #[test]
 fn re_attestation_can_revoke_admission() {
