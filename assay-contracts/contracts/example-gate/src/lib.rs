@@ -170,10 +170,18 @@ impl ExampleGate {
 
     /// Reports whether [`Self::deposit`] would admit this asset right now.
     ///
-    /// Exposed so a client can show the reason before spending a fee on a
-    /// transaction that would revert.
+    /// Returns `Ok(())` if the asset meets policy, or `Err(Error)` with the
+    /// specific refusal reason if it does not.
+    pub fn admission(env: Env, asset: Address) -> Result<(), Error> {
+        Self::assert_safe(&env, &asset)
+    }
+
+    /// Reports whether [`Self::deposit`] would admit this asset right now.
+    ///
+    /// Kept for backward compatibility. Prefer [`Self::admission`] to obtain
+    /// the refusal reason without submitting a transaction that reverts.
     pub fn would_admit(env: Env, asset: Address) -> bool {
-        Self::assert_safe(&env, &asset).is_ok()
+        Self::admission(env, asset).is_ok()
     }
 
     pub fn balance(env: Env, asset: Address, holder: Address) -> i128 {
