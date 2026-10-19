@@ -102,6 +102,7 @@ Every Go package, its responsibility, and the boundary it must respect.
 | `internal/stellarexpert` | Retrieves StellarExpert's curated directory and blocked-domain data as attributed evidence. | Outbound HTTP. Leaf package. |
 | `internal/eval` | Replays the labelled corpus from captured fixtures through the engine; records and diffs the results. | Reads fixtures from disk; never the network. |
 | `internal/replay` | Records every upstream response a live scan fetches (manifest + bodies) and replays a scan from that recording. | Filesystem I/O for recordings only. The replayer replaces the HTTP transport outright, so a replay never reaches the network. |
+| `internal/registry` | Reads the Assay safety registry on-chain through Soroban RPC simulation. | Outbound HTTP to Soroban RPC; read-only simulation; no signing or contract state mutation. |
 | `internal/version` | The scanner version identity recorded with every eval run. | No I/O. Leaf package. |
 
 The two Soroban contracts:
