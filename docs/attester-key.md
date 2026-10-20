@@ -15,8 +15,9 @@ Related work:
 
 - Admin rotation in the contract: [#89](https://github.com/use-assay/Assay/issues/89).
   The registry **source** now implements `transfer_admin`/`accept_admin`, a
-  two-step handshake; the **live testnet instance** predates them and cannot be
-  upgraded, so on it redeploy is still the only rotation. See
+  two-step handshake with `cancel_admin_transfer` to withdraw a proposal; the
+  **live testnet instance** predates them and cannot be upgraded, so on it
+  redeploy is still the only rotation. See
   [Rotation](#rotation).
 - Threat model: [#30](https://github.com/use-assay/Assay/issues/30).
   `docs/threat-model.md` does not exist yet. The attacker-capability
@@ -175,8 +176,8 @@ archival is not expiry and not a recovery,
    still pointed at the old ID keeps reading its (stale) attestations.
 
 There is no faster path even on a registry built from current source, where
-`transfer_admin`/`accept_admin` do exist: the first step needs the current
-admin's signature, and a lost key cannot sign it. `init` is single-shot
+`transfer_admin`/`accept_admin` (and `cancel_admin_transfer`) do exist: the
+first step needs the current admin's signature, and a lost key cannot sign it. `init` is single-shot
 (`AlreadyInitialized` on a second call) as well, so the existing contract
 cannot be re-initialized onto a new key either. See [Rotation](#rotation).
 
@@ -233,7 +234,8 @@ not the same contract, and this section keeps them apart.
 - **The registry source**
   ([`assay-contracts/contracts/safety-registry`](../assay-contracts/contracts/safety-registry))
   now implements a **two-step admin transfer** through `transfer_admin` and
-  `accept_admin`. Any instance deployed from current source — the next
+  `accept_admin`, plus `cancel_admin_transfer` to withdraw a pending proposal.
+  Any instance deployed from current source — the next
   deployment, or a fresh one — supports rotation in place, with no redeploy and
   no re-attestation.
 
@@ -261,9 +263,20 @@ cannot take the registry:
    that point the old key can no longer `attest`, `revoke`, or start a
    transfer.
 
-`accept_admin` with no pending transfer returns `NoPendingAdmin` (error 6)
-rather than succeeding quietly. The full ABI, auth requirements and error table
-are in
+If the proposal was aimed at the wrong or a compromised address, the current
+admin can withdraw it before it is accepted:
+
+```sh
+stellar contract invoke --id <CONTRACT_ID> \
+  --source-account assay-attester --network testnet \
+  -- cancel_admin_transfer
+```
+
+This clears the pending entry, leaves the current admin in place, and emits an
+event. A later `accept_admin` by the withdrawn address fails with
+`NoPendingAdmin` (error 6). `cancel_admin_transfer` with nothing pending also
+returns `NoPendingAdmin` (error 6) rather than succeeding quietly. The full ABI,
+auth requirements and error table are in
 [contract-interface.md](contract-interface.md#admin-transfer-two-step-rotation).
 
 Attestations are **not** affected by a transfer: they are stored by asset, not

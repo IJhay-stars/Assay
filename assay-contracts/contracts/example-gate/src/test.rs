@@ -368,3 +368,113 @@ fn admission_returns_issuer_can_take_it() {
     );
     assert!(!f.gate.would_admit(&asset));
 }
+
+// ---------------------------------------------------------------------------
+// Tests for issues #335, #336, #337
+// ---------------------------------------------------------------------------
+
+#[test]
+fn policy_entrypoint_returns_configured_policy() {
+    let f = setup();
+    let pol = f.gate.policy();
+    assert_eq!(pol.max_severity, DEFAULT_MAX_SEVERITY);
+    assert_eq!(pol.max_attestation_age, DEFAULT_MAX_ATTESTATION_AGE);
+    assert_eq!(pol.refused_mechanics, DEFAULT_REFUSED_MECHANICS);
+
+    // Also test with custom constructor arguments
+    let custom_gate_id = f.env.register(
+        ExampleGate,
+        (
+            f.registry.address.clone(),
+            1u32,
+            3600u64,
+            MECH_CLAWBACK_ENABLED,
+        ),
+    );
+    let custom_gate = ExampleGateClient::new(&f.env, &custom_gate_id);
+    let custom_pol = custom_gate.policy();
+    assert_eq!(custom_pol.max_severity, 1);
+    assert_eq!(custom_pol.max_attestation_age, 3600);
+    assert_eq!(custom_pol.refused_mechanics, MECH_CLAWBACK_ENABLED);
+}
+
+#[test]
+fn deposit_refuses_zero_amount() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &0),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(f.gate.balance(&asset, &user), 0);
+}
+
+#[test]
+fn deposit_refuses_negative_amount() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &-1),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &-500),
+        Err(Ok(Error::InvalidAmount))
+    );
+    assert_eq!(f.gate.balance(&asset, &user), 0);
+}
+
+#[test]
+fn deposit_refuses_overflow_rather_than_panicking() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    // Deposit MAX - 10 first
+    f.gate.deposit(&asset, &user, &(i128::MAX - 10));
+    assert_eq!(f.gate.balance(&asset, &user), i128::MAX - 10);
+
+    // Adding 11 would overflow i128
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &11),
+        Err(Ok(Error::BalanceOverflow))
+    );
+    // Balance remains unchanged
+    assert_eq!(f.gate.balance(&asset, &user), i128::MAX - 10);
+
+    // Adding 10 reaches i128::MAX exactly
+    f.gate.deposit(&asset, &user, &10);
+    assert_eq!(f.gate.balance(&asset, &user), i128::MAX);
+
+    // Any positive deposit on MAX balance overflows
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &1),
+        Err(Ok(Error::BalanceOverflow))
+    );
+    assert_eq!(f.gate.balance(&asset, &user), i128::MAX);
+}
+
+#[test]
+fn deposit_is_bookkeeping_only_and_increments_internal_balance() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert_eq!(f.gate.balance(&asset, &user), 0);
+    f.gate.deposit(&asset, &user, &50);
+    assert_eq!(f.gate.balance(&asset, &user), 50);
+    f.gate.deposit(&asset, &user, &75);
+    assert_eq!(f.gate.balance(&asset, &user), 125);
+}

@@ -246,6 +246,77 @@ func TestABIDriftCapabilityMask(t *testing.T) {
 	}
 }
 
+// TestABIDriftInterfaceVersion asserts that the interface version in the registry
+// contract source text matches the documented version (1).
+func TestABIDriftInterfaceVersion(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+	rust := parseRustU32Consts(t, string(src))
+
+	got, ok := rust["INTERFACE_VERSION"]
+	if !ok {
+		t.Fatal("rust INTERFACE_VERSION missing")
+	}
+	if got != 1 {
+		t.Errorf("INTERFACE_VERSION drift: got %d, want 1", got)
+	}
+}
+
+// TestABIDriftSafetyStructShape pins the on-chain Safety struct fields in
+// the registry contract. Any addition, reordering, or type change of Safety fields
+// (such as adding an observed_at timestamp) alters the observable on-chain ABI
+// and storage layout.
+func TestABIDriftSafetyStructShape(t *testing.T) {
+	src, err := os.ReadFile(contractSourcePath(t))
+	if err != nil {
+		t.Fatalf("read contract source: %v", err)
+	}
+
+	// Verify the exact fields of `pub struct Safety`
+	safetyRe := regexp.MustCompile(`pub struct Safety \{([^}]+)\}`)
+	match := safetyRe.FindStringSubmatch(string(src))
+	if len(match) < 2 {
+		t.Fatal("could not find `pub struct Safety` in contract source")
+	}
+
+	body := match[1]
+	fieldRe := regexp.MustCompile(`pub\s+(\w+)\s*:\s*([^,\n]+)`)
+	fields := fieldRe.FindAllStringSubmatch(body, -1)
+
+	type fieldInfo struct {
+		name string
+		typ  string
+	}
+	var gotFields []fieldInfo
+	for _, f := range fields {
+		gotFields = append(gotFields, fieldInfo{
+			name: strings.TrimSpace(f[1]),
+			typ:  strings.TrimSpace(f[2]),
+		})
+	}
+
+	wantFields := []fieldInfo{
+		{"severity", "u32"},
+		{"flags", "u32"},
+		{"evidence_hash", "BytesN<32>"},
+		{"attested_at", "u64"},
+	}
+
+	if len(gotFields) != len(wantFields) {
+		t.Fatalf("Safety struct field count mismatch: got %d fields (%v), want %d fields (%v)",
+			len(gotFields), gotFields, len(wantFields), wantFields)
+	}
+
+	for i := range wantFields {
+		if gotFields[i] != wantFields[i] {
+			t.Errorf("Safety struct field %d mismatch: got %+v, want %+v",
+				i, gotFields[i], wantFields[i])
+		}
+	}
+}
+
 // TestABIDriftIntegratorCrate extends the drift check to the integrator
 // crate (issue #469). assay-gate is what a third-party gate compiles against,
 // so its copy of the ABI constants must agree with the registry's: a gate

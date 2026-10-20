@@ -184,3 +184,73 @@ ledger, Assay achieves both properties:
    `evidence_hash` matches the current claims byte-for-byte.
 2. **Freshness:** A consumer gate enforces maximum tolerable age using
    `attested_at` against the consensus clock.
+
+---
+
+## 5. Evaluation & Decision: Storing Scan Time On-Chain (`observed_at`)
+
+### Context & Problem Statement
+
+Issue #334 raised whether `Safety` should store the scanner's observation time
+(`Report.ScannedAt` / `observed_at: u64`) on-chain alongside `attested_at`.
+
+`attested_at` records the ledger consensus timestamp (`env.ledger().timestamp()`)
+when the attestation is written to persistent storage. If attestation writes are
+delayed or batched into transactions submitted later, `attested_at` reflects the
+time of the write rather than when the external facts were observed by the scanner.
+Downstream consumer gates evaluating freshness via `max_age_secs` compute staleness
+against `attested_at`, which can overstate how fresh the underlying observation is
+by the duration of the write lag.
+
+### Options Evaluated
+
+1. **Adopt `observed_at: u64` in `Safety`:**
+   - **Mechanism:** The writer supplies `observed_at: u64` (derived from the
+     scanner's whole-second UTC timestamp, `Params.ScannedAt`) in `attest` and
+     `Attestation` (for `attest_many`).
+   - **Validation:** Enforce invariant `observed_at <= env.ledger().timestamp()`
+     at write time (refusing future observation times).
+   - **Impact & Trade-offs:**
+     - Modifying `Safety` alters the on-chain storage layout and observable ABI
+       of `SafetyRegistry` and `assay-gate`.
+     - It forces a bump of `INTERFACE_VERSION` from 1 to 2, affecting downstream
+       integrators and ABI drift checks.
+     - `observed_at` is inherently an off-chain, untrusted claim provided by the
+       writer (admin). Unlike `attested_at`, which is consensus-verified by validating
+       ledger nodes, `observed_at` cannot be independently checked on-chain beyond
+       asserting that it does not lie in the future.
+     - A malicious or misconfigured writer could pass `observed_at = env.ledger().timestamp()`
+       anyway, meaning on-chain contracts cannot truly rely on `observed_at` for
+       adversarial protection.
+
+2. **Document the Gap & Maintain `attested_at` as Sole Freshness Authority:**
+   - **Mechanism:** Retain the current `Safety` struct layout (`severity`, `flags`,
+     `evidence_hash`, `attested_at`).
+   - **Freshness Discipline:** Preserve `attested_at` as the single authoritative
+     time primitive for on-chain gates.
+   - **Auditability via `evidence_hash`:** The off-chain report already contains
+     exact whole-second UTC `ScannedAt` and per-source `RetrievedAt` timestamps.
+     Anyone can verify the attestation and inspect the lag between `ScannedAt` and
+     `attested_at` via `assay verify` or off-chain indexers.
+   - **Operational Bound:** Mitigate write lag operationally: the attestation
+     pipeline runs scans and submits transactions immediately rather than holding
+     stale observations in deep queues.
+
+### Decision
+
+**Assay declines adding `observed_at` to the on-chain `Safety` struct and documents
+the gap.**
+
+**Rationale:**
+1. **Trust Boundary:** On-chain Soroban contracts cannot independently verify wall-clock
+   observation times; `env.ledger().timestamp()` is the only consensus-backed time
+   source. Adding an unverified writer-supplied timestamp on-chain increases storage
+   footprint and contract complexity without providing trust-minimized security guarantees.
+2. **ABI & Schema Stability:** Preserving the existing `Safety { severity, flags, evidence_hash, attested_at }`
+   struct avoids breaking changes across the deployed registry, the `assay-gate` crate,
+   and third-party protocol integrators.
+3. **Auditability:** Reproducibility and audit trails are preserved off-chain:
+   `evidence_hash` commits strictly to the canonical claims, `attested_at` binds the
+   ledger write, and the full temporal record (`ScannedAt`, `RetrievedAt`) remains
+   verifiable against the original signed scan report.
+

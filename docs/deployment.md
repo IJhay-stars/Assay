@@ -58,13 +58,18 @@ Any of these can be read at
 
 Three instances exist on testnet and none can be removed. Only one should be
 used. Checked on 2026-09-17 by fetching each contract's wasm and hashing it, and
-by reading the constructor argument from each deploy transaction:
+by reading the constructor argument from each deploy transaction or querying `policy()`:
 
-| Instance | Status | Wasm | Registry at construction |
-| --- | --- | --- | --- |
-| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` |
-| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` |
-| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` |
+| Instance | Status | Wasm | Registry at construction | Configured Policy (`policy()`) |
+| --- | --- | --- | --- | --- |
+| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` |
+| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` |
+| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` | `max_severity: 4`, `max_age: 86400s`, `refused_mechanics: 6` |
+
+The configured policy can be verified directly on deployed gates supporting the ABI via:
+```sh
+stellar contract invoke --id $GATE --network testnet --send=no -- policy
+```
 
 ## Does the source still build what is deployed?
 
@@ -600,11 +605,16 @@ Two-step transfer prevents accidental transfer to an unowned address or typo:
    stellar contract invoke --id <CONTRACT_ID> --source-account <NEW_ADMIN_KEY> \
      --network testnet -- accept_admin
    ```
+3. **Cancel a pending transfer** (Current Admin, optional):
+   ```sh
+   stellar contract invoke --id <CONTRACT_ID> --source-account <CURRENT_ADMIN_KEY> \
+     --network testnet -- cancel_admin_transfer
+   ```
 
-After `accept_admin` succeeds, `new_admin` becomes the sole authorized attester and the old admin key loses all write permissions.
+After `accept_admin` succeeds, `new_admin` becomes the sole authorized attester and the old admin key loses all write permissions. `cancel_admin_transfer` withdraws a proposal before it is accepted; it leaves the current admin in place, emits an event, and makes a subsequent `accept_admin` fail with `NoPendingAdmin`.
 
 > [!NOTE]
-> Redeploying contract code: Adding `transfer_admin` and `accept_admin` requires redeploying the registry contract on testnet because Soroban contract WASM is immutable without an explicit upgrade entrypoint. Redeploying requires running `init(admin)` on the newly deployed instance and re-submitting attestations for the corpus assets.
+> Redeploying contract code: Adding `transfer_admin`, `accept_admin`, and `cancel_admin_transfer` requires redeploying the registry contract on testnet because Soroban contract WASM is immutable without an explicit upgrade entrypoint. Redeploying requires running `init(admin)` on the newly deployed instance and re-submitting attestations for the corpus assets.
 
 ## What this deployment is not
 

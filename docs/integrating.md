@@ -197,12 +197,22 @@ Then call it before you act, in the same transaction:
 ```rust
 pub fn deposit(env: Env, asset: Address, from: Address, amount: i128) -> Result<(), Error> {
     from.require_auth();
+    if amount <= 0 {
+        return Err(Error::InvalidAmount);
+    }
     let registry: Address = env.storage().instance().get(&DataKey::Registry).unwrap();
     assert_safe(&env, &registry, &asset)?;
-    // ... credit the balance
+    // ... credit the balance (checked_add)
     Ok(())
 }
 ```
+
+> [!WARNING]
+> **Bookkeeping-only demonstration:** The worked example in `contracts/example-gate`
+> only increments an internal balance counter (`storage().persistent()`) to demonstrate
+> atomic safety checking. It does **not** invoke `soroban_sdk::token::Client::transfer`
+> to move tokens. A production vault or gateway custodying real assets must call the token
+> contract (or perform a SAC transfer) to receive funds from `from` before or alongside crediting balances.
 
 ### Or let the registry decide
 

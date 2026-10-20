@@ -49,6 +49,9 @@ the mutation applied; **survived** means the run found a test gap.
 | R-M3 | Severity ceiling removed at write time: delete the `severity > SEVERITY_CRITICAL` rejection | The ABI range is enforced at write time so readers can rely on it | same, `attest` | **caught** |
 | R-M4 | Confiscation invariant removed at read time: delete the defence-in-depth clawback check in `is_safe` | A gate must not depend on the writer having been correct | same, `is_safe` | **survived → closed in #111's PR** (see below) |
 | R-M5 | Staleness check removed from `is_safe` (always treat as fresh) | An attestation is only as fresh as `attested_at`; a caller's `max_age_secs` must bind | same, `is_safe` | **caught** |
+| R-M6 | `admin.require_auth()` removed from `transfer_admin` | Only the current admin may nominate a successor, and a rejected nomination must leave no `PendingAdmin` behind | same, `transfer_admin` | **survived → closed in #347's PR** (see below) |
+| R-M7 | `PendingAdmin` removal skipped in `accept_admin` | A completed transfer consumes its nomination: `accept_admin` is replay-proof, and a stale pending address never outlives its own acceptance | same, `accept_admin` | **survived → closed in #347's PR** (see below) |
+| R-M8 | Mask test inverted in `is_safe_masked` (`flags & forbidden_mask != 0` → `== 0`), refusing clean assets and admitting forbidden ones | The mask gate admits an attestation exactly when it carries none of the caller's forbidden bits; a policy mask must block the bits it names | same, `is_safe_masked` | **caught** |
 
 ### Rust — the example gate
 
@@ -110,6 +113,71 @@ a mutation catch. Commit the snapshot with the test, and verify a "catch"
 against the committed snapshot — a failing test whose message is "Writing test
 snapshot file…" is not a catch.
 
+## Baseline run — 2026-10-19 — admin transfer and the mask gate
+
+Run for #347, which extends the catalogue to the two-step admin transfer and
+the mask-based gate — the safety-critical branches added after the 2026-09-27
+run. Same procedure: a scratch `git worktree` of `main` (`8ddcb44`), each
+mutation applied by hand, `cargo test -p assay-safety-registry` from
+`assay-contracts/`, the tree restored between rows. R-M6 and R-M7 were first
+run against the suite as it then stood — 63 tests, none of which observed
+either entrypoint's authorization or its cleanup — and the survivors below
+are that blind spot measured rather than assumed. R-M8 was run against the
+same suite and again against the suite as delivered with this change
+(65 tests): the same six failures both times, so its row cites the delivered
+run.
+
+| ID | Suite run | Result | Caught by (first failing test) |
+| --- | --- | --- | --- |
+| R-M6 | `cargo test -p assay-safety-registry` | **survived** (`63 passed, 0 failed`) | — (closed below; re-run **caught**, `64 passed, 1 failed`) |
+| R-M7 | `cargo test -p assay-safety-registry` | **survived** (`63 passed, 0 failed`) | — (closed below; re-run **caught**, `64 passed, 1 failed`) |
+| R-M8 | `cargo test -p assay-safety-registry` | **caught** (`59 passed, 6 failed`) | `test::fail_closed::fail_closed_gate_refuses_confiscation_below_high_even_if_stored`, then `test::fail_closed::fail_closed_gate_refuses_confiscation_when_the_write_time_check_is_bypassed`, `test::masked_gate_admits_when_no_forbidden_bit_is_set`, `test::masked_gate_blocks_confiscation_capable_asset`, `test::masked_gate_all_bits_blocks_any_attested_flag`, `test::masked_gate_stale_attestation_fails_closed` |
+
+### Verdict: 1/3 caught on the first run, 3/3 after closing the gaps
+
+**R-M6 and R-M7 survived, and the two survivors are the same class of gap:**
+nothing in the suite could see the mutated line. The one test that crosses a
+transfer, `attestations_survive_admin_transfer_and_follow_the_new_admin`,
+mocks authorization *for* the admin on `transfer_admin`, so it passes
+unchanged when the entrypoint stops asking — it proves the transfer works,
+not that it is guarded. And nothing reads the `PendingAdmin` slot back, so a
+nomination that outlives its acceptance is invisible: the replay it enables
+is exactly the state a second `accept_admin` should find gone. The full
+entrypoint matrix these two entrypoints still owe — happy path, accept by the
+wrong address, a superseded nomination, the error codes through the transfer —
+is #318, open independently of this catalogue; what follows is the
+narrowest test that makes each mutation fail.
+
+Both gaps were closed in the change that measured them, and both mutations
+were re-run against the fixed suite:
+
+- **R-M6 → caught** by the new `test::transfer_admin_rejects_unauthorized_caller`:
+  a non-admin is granted explicit mock authorization for that very call and
+  must still be refused, and the refusal is then probed — `accept_admin` must
+  answer `NoPendingAdmin`, which proves the rejected nomination wrote
+  nothing. Re-run with the mutation: `64 passed, 1 failed`, panic
+  `a non-admin must not nominate a pending admin: Ok(())`.
+- **R-M7 → caught** by the new `test::accept_admin_consumes_the_pending_nomination`:
+  after a completed transfer, a replay of `accept_admin` must fail with
+  `NoPendingAdmin`, and a second transfer/accept pair must still work — the
+  slot is consumed, not write-once. Re-run with the mutation: `64 passed,
+  1 failed`, panic `a pending nomination must not survive its own
+  acceptance: Ok(())`.
+
+The original survivors stay in the table above rather than being erased, for
+the same reason R-M4's did: an honest baseline that found two gaps is worth
+more than a tidy one that found none. Both rows' verdicts now read
+caught-in-#347's-PR; re-running either mutation against the suite as
+committed finds them.
+
+The snapshot caveat applied here too. Every run above was made against
+snapshots written by an unmutated pass, and every failure cited is an
+assertion panic with its message quoted — not the SDK's `Writing test
+snapshot file…` line. The caveat then earned a second half: a run that fails
+*rewrites the snapshots of the failing tests to the mutated state*, so
+restoring only the mutated source file leaves poisoned snapshots for the next
+row. The restore step below now says the whole tree.
+
 ## Procedure
 
 Reproduce the baseline from this document alone:
@@ -126,9 +194,12 @@ Reproduce the baseline from this document alone:
    baseline does. **Survived** if the suite passes: that is a test gap — file
    an issue quoting this catalogue and the mutation, add the missing test, and
    update the row. (R-M4's closure above shows the shape.)
-5. Restore the file (`git checkout -- <file>`) and remove the worktree before
-   touching the next row. Never commit a mutated tree; the catalogue is a
-   measurement, not a change.
+5. Restore the whole tree (`git checkout -- .` inside the scratch worktree —
+   not just the mutated file) and remove the worktree before touching the
+   next row. A failing run also rewrites the snapshots of the failing tests
+   to the mutated state, and the next row would then fail on a snapshot
+   mismatch rather than on its mutation. Never commit a mutated tree; the
+   catalogue is a measurement, not a change.
 
 For the Rust rows, `cargo test -p assay-safety-registry` or
 `-p assay-example-gate` from `assay-contracts/`; for the Go rows,

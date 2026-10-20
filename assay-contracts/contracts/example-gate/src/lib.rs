@@ -10,8 +10,9 @@
 //! time it depends only on that interface crate; at run time it still talks to
 //! a deployed registry address it was constructed with.
 //!
-//! It is deliberately not a vault. It stores a balance and nothing else, so
-//! the only thing worth reading here is the gate.
+//! It is deliberately not a vault. It stores a balance and nothing else (it
+//! performs bookkeeping only and moves no tokens — see [`deposit`](ExampleGate::deposit)),
+//! so the only thing worth reading here is the gate.
 //!
 //! See `docs/integrating.md` for the deployed testnet registry address and the
 //! deploy command that wires it in.
@@ -105,6 +106,14 @@ enum DataKey {
     Balance(Address, Address),
 }
 
+#[contracttype]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Policy {
+    pub max_severity: u32,
+    pub max_attestation_age: u64,
+    pub refused_mechanics: u32,
+}
+
 #[contracterror]
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 #[repr(u32)]
@@ -120,6 +129,10 @@ pub enum Error {
     SeverityTooHigh = 4,
     /// A caller supplied a policy that is outside the supported range.
     InvalidPolicy = 5,
+    /// Deposit amount must be positive.
+    InvalidAmount = 6,
+    /// Deposited balance would overflow.
+    BalanceOverflow = 7,
 }
 
 #[contract]
@@ -156,7 +169,33 @@ impl ExampleGate {
         Ok(())
     }
 
+    /// Exposes this gate's configured policy: severity ceiling, maximum attestation age,
+    /// and refused mechanics mask as set at construction.
+    pub fn policy(env: Env) -> Policy {
+        Policy {
+            max_severity: env
+                .storage()
+                .instance()
+                .get(&DataKey::MaxSeverity)
+                .unwrap_or(DEFAULT_MAX_SEVERITY),
+            max_attestation_age: env
+                .storage()
+                .instance()
+                .get(&DataKey::MaxAttestationAge)
+                .unwrap_or(DEFAULT_MAX_ATTESTATION_AGE),
+            refused_mechanics: env
+                .storage()
+                .instance()
+                .get(&DataKey::RefusedMechanics)
+                .unwrap_or(DEFAULT_REFUSED_MECHANICS),
+        }
+    }
+
     /// Accepts a deposit, but only in an asset the issuer cannot claw back.
+    ///
+    /// NOTE: This worked example records internal bookkeeping only and moves no tokens.
+    /// It increments an internal ledger balance counter and does NOT invoke `token::Client::transfer`.
+    /// Production integrations custodying real assets must call the token contract to transfer funds.
     ///
     /// The read is a cross-contract call in the same transaction as the
     /// deposit, so the attestation cannot change between the check and the
@@ -166,11 +205,16 @@ impl ExampleGate {
     pub fn deposit(env: Env, asset: Address, from: Address, amount: i128) -> Result<(), Error> {
         from.require_auth();
 
+        if amount <= 0 {
+            return Err(Error::InvalidAmount);
+        }
+
         Self::assert_safe(&env, &asset)?;
 
         let key = DataKey::Balance(asset, from);
         let current: i128 = env.storage().persistent().get(&key).unwrap_or(0);
-        env.storage().persistent().set(&key, &(current + amount));
+        let new_balance = current.checked_add(amount).ok_or(Error::BalanceOverflow)?;
+        env.storage().persistent().set(&key, &new_balance);
         Ok(())
     }
 
