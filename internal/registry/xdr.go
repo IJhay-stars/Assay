@@ -5,7 +5,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"strings"
 )
 
 // scVal represents a Soroban ScVal for building invocation arguments.
@@ -377,4 +376,3 @@ func readU64(b []byte, off int) uint64 {
 	return uint64(b[off])<<56 | uint64(b[off+1])<<48 | uint64(b[off+2])<<40 | uint64(b[off+3])<<32 |
 		uint64(b[off+4])<<24 | uint64(b[off+5])<<16 | uint64(b[off+6])<<8 | uint64(b[off+7])
 }
-

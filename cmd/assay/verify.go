@@ -272,7 +272,6 @@ func stellarRegistryReader(asset mechanics.Asset) (*OnChainSafety, error) {
 	}, nil
 }
 
-
 // verifyBundle checks an offline bundle: it recomputes the digest from the
 // archived preimage and verifies every file the manifest binds. It never reads
 // the chain and never scans. The exit code distinguishes a valid bundle (0)
