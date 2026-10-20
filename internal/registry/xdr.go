@@ -378,7 +378,3 @@ func readU64(b []byte, off int) uint64 {
 		uint64(b[off+4])<<24 | uint64(b[off+5])<<16 | uint64(b[off+6])<<8 | uint64(b[off+7])
 }
 
-// formatHex encodes bytes as a lowercase hex string.
-func formatHex(b []byte) string {
-	return strings.ToLower(hex.EncodeToString(b))
-}

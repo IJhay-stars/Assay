@@ -272,12 +272,6 @@ func stellarRegistryReader(asset mechanics.Asset) (*OnChainSafety, error) {
 	}, nil
 }
 
-func bytesOr(b []byte) []byte {
-	if len(strings.TrimSpace(string(b))) == 0 {
-		return []byte("null")
-	}
-	return b
-}
 
 // verifyBundle checks an offline bundle: it recomputes the digest from the
 // archived preimage and verifies every file the manifest binds. It never reads
