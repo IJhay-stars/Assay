@@ -2,6 +2,7 @@ package sep1_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -169,7 +170,11 @@ func (t rewriteTo) RoundTrip(req *http.Request) (*http.Response, error) {
 	u := *req.URL
 	u.Host = t.host
 	req.URL = &u
-	return t.base.RoundTrip(req)
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }
 
 func domainOf(u string) string {

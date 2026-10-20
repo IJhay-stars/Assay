@@ -62,8 +62,12 @@ type Record struct {
 
 // Run classifies every subject in the corpus and records the output.
 func Run(engine *mechanics.Engine, fixturesDir string) (*Record, error) {
+	labels, err := Corpus(fixturesDir)
+	if err != nil {
+		return nil, err
+	}
 	rec := &Record{Version: version.Version, GeneratedAt: time.Now().UTC()}
-	for _, label := range Corpus() {
+	for _, label := range labels {
 		s, err := LoadSubject(fixturesDir, label.Dir)
 		if err != nil {
 			return nil, fmt.Errorf("load %s: %w", label.Dir, err)

@@ -76,11 +76,11 @@ type rpcError struct {
 func rpcCall(ctx context.Context, client *http.Client, url, method string, params any, out any) error {
 	body, err := json.Marshal(rpcRequest{JSONRPC: "2.0", ID: 1, Method: method, Params: params})
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: encode request: %w", method, err)
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return fmt.Errorf("%s: build request: %w", method, err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := client.Do(req)
@@ -101,7 +101,10 @@ func rpcCall(ctx context.Context, client *http.Client, url, method string, param
 	if env.Error != nil {
 		return fmt.Errorf("%s: rpc error %d: %s", method, env.Error.Code, env.Error.Message)
 	}
-	return json.Unmarshal(env.Result, out)
+	if err := json.Unmarshal(env.Result, out); err != nil {
+		return fmt.Errorf("%s: decode result: %w", method, err)
+	}
+	return nil
 }
 
 type rpcEvent struct {
@@ -325,7 +328,7 @@ func runRegistryHistory(args []string, d commandDeps) error {
 	network := fs.String("network", envOr("ASSAY_NETWORK", "testnet"), "network used to derive the SAC id (env ASSAY_NETWORK)")
 	asJSON := fs.Bool("json", false, "print the history as JSON")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fmt.Errorf("registry-history: %w", err)
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("registry-history takes exactly one asset (CODE-ISSUER or a C... SAC address)")
@@ -335,7 +338,7 @@ func runRegistryHistory(args []string, d commandDeps) error {
 	if !strings.HasPrefix(sac, "C") || strings.Contains(sac, "-") {
 		asset, err := scan.ParseAsset(sac)
 		if err != nil {
-			return err
+			return fmt.Errorf("registry-history: %w", err)
 		}
 		if sac, err = stellarSACID(asset.Code, asset.Issuer, *network); err != nil {
 			return err
@@ -352,7 +355,10 @@ func runRegistryHistory(args []string, d commandDeps) error {
 	if *asJSON {
 		enc := json.NewEncoder(d.stdout)
 		enc.SetIndent("", "  ")
-		return enc.Encode(h)
+		if err := enc.Encode(h); err != nil {
+			return fmt.Errorf("registry-history: write: %w", err)
+		}
+		return nil
 	}
 	printRegistryHistory(d.stdout, h)
 	return nil

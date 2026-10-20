@@ -21,6 +21,7 @@ package mechanics_test
 // build, which is what the check is for.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -120,7 +121,7 @@ func parseU32Atom(s string, env map[string]uint32) (uint32, error) {
 	}
 	n, err := strconv.ParseUint(s, 0, 32)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("parse %q as u32: %w", s, err)
 	}
 	return uint32(n), nil
 }

@@ -27,6 +27,13 @@ evidence verifies perfectly can still be a year stale. Nothing here refreshes
 anything; see [contract-interface.md](contract-interface.md) for why
 `max_age_secs` is the caller's policy.
 
+If the attester published an offline bundle, steps 3 and 4 can be replaced by
+`assay verify -bundle`. The bundle contains the exact source bytes, so it
+answers "does this evidence produce this hash" without re-scanning or contacting
+a source. Steps 0–2 and 5–6 still apply: verify the binary, read the on-chain
+attestation, compare, and interpret. The format and what it does not prove are
+in [offline-bundle.md](offline-bundle.md).
+
 ## Step 0: verify the binary before you run it
 
 Everything below runs `./assay`. If you have not checked where that binary came
@@ -387,6 +394,8 @@ published release, because no release has been published yet (#278).
 
 - [contract-interface.md](contract-interface.md) — the `evidence_hash` encoding
   and the `get_safety` ABI.
+- [offline-bundle.md](offline-bundle.md) — the archive that lets steps 3–4 be
+  checked without a network, and its redistribution rules.
 - [attestation-run.md](attestation-run.md) — every asset scanned and the
   reproducibility audit behind the #24 caveat.
 - [integrating.md](integrating.md) — how a contract consumes an attestation, and

@@ -48,9 +48,20 @@ func severityValues() []mechanics.Severity {
 // BuildConfusionMatrix classifies every subject in the corpus against its
 // label, producing a confusion matrix over severity levels and checks.
 // Undetermined scans are counted as their own outcome class and are never
-// folded into agreement or disagreement.
+// folded into agreement or disagreement. A subject whose verdict is marked
+// unknown has no classification to agree with, so it is excluded rather than
+// counted as agreement.
 func BuildConfusionMatrix(engine *mechanics.Engine, fixturesDir string) (*ConfusionMatrix, error) {
-	labels := Corpus()
+	all, err := Corpus(fixturesDir)
+	if err != nil {
+		return nil, err
+	}
+	labels := make([]Label, 0, len(all))
+	for _, l := range all {
+		if !l.Unknown {
+			labels = append(labels, l)
+		}
+	}
 	corpusSize := len(labels)
 
 	matrix := &ConfusionMatrix{

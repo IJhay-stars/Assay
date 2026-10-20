@@ -165,7 +165,7 @@ func New() *Client {
 func (c *Client) Fetch(ctx context.Context, url string) (*List, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("assetlist: build request for %s: %w", url, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)

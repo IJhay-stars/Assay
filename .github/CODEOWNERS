@@ -18,6 +18,8 @@
 /internal/mechanics/evidence.go @use-assay/maintainers
 /assay-contracts/contracts/safety-registry/src/lib.rs @use-assay/maintainers
 /assay-contracts/contracts/example-gate/src/lib.rs @use-assay/maintainers
+/assay-contracts/contracts/safety-registry/test_snapshots @use-assay/maintainers
+/assay-contracts/contracts/example-gate/test_snapshots @use-assay/maintainers
 /scripts/merge-gate.sh @use-assay/maintainers
 /scripts/check-codeowners.sh @use-assay/maintainers
 /.github/workflows @use-assay/maintainers

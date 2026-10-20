@@ -34,6 +34,8 @@ CRITICAL_PATHS=(
     "internal/mechanics/evidence.go"
     "assay-contracts/contracts/safety-registry/src/lib.rs"
     "assay-contracts/contracts/example-gate/src/lib.rs"
+    "assay-contracts/contracts/safety-registry/test_snapshots"
+    "assay-contracts/contracts/example-gate/test_snapshots"
     "scripts/merge-gate.sh"
     ".github/workflows"
 )

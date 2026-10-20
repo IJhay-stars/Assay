@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -249,7 +250,10 @@ func newRPCServer(t *testing.T, entries map[string]string) *rpcServer {
 }
 
 func jsonDecode(r *http.Request, v any) error {
-	return json.NewDecoder(r.Body).Decode(v)
+	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+		return fmt.Errorf("decode request: %w", err)
+	}
+	return nil
 }
 
 func TestAccountFlags(t *testing.T) {

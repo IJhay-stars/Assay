@@ -31,6 +31,7 @@ this document introduces no new severity semantics, and neither does the code:
 | `mechanics` | `Report.Mechanics` | the full bit set as read, capability and reported-only alike |
 | `base_severity` | `Report.Base` | capability-only severity, before escalation |
 | `severity` | `Report.Severity` | final severity, after escalation |
+| `accountability` | `Report.Accountability` | whether an identifiable party publicly claims the asset |
 | `undetermined` | `Report.Undetermined` | whether a source it depends on failed to answer |
 | `undetermined_checks` | `Report.UndeterminedChecks` | which checks could not complete |
 | `evidence` | `Report.Evidence` | the attributed evidence the scan consumed |
@@ -39,13 +40,15 @@ The full bit set is carried rather than only the capability bits, so an
 observation taken today can answer a question about a bit Assay does not compare
 yet without being re-taken.
 
-The derived difference has three parts:
+The derived difference is reported as these movements:
 
 | Part | Meaning |
 | --- | --- |
 | **added bits** | capability bits set in the later observation and clear in the earlier one |
 | **removed bits** | capability bits set in the earlier observation and clear in the later one |
 | **severity movement** | base and final severity before and after, attributed to the axis that moved |
+| **accountability movement** | which party publicly claimed the asset before and after, independent of severity |
+| **evidence movement** | claims that changed while the verdict stayed the same |
 
 The pair itself is kept, not just the difference. A difference alone cannot be
 audited: a consumer has to be able to see what each observation said, and a
@@ -207,6 +210,15 @@ of it. Storing a computed transition would store a second source of truth beside
 the pair it was derived from, which can disagree with that pair and cannot be
 checked without it. Since the comparison is a handful of bitwise operations,
 there is no cost being avoided.
+
+The same rule reaches the command line: `assay diff A.json B.json` decodes two
+saved reports, rebuilds `Report.Mechanics` from the serialized mechanic names,
+and calls the same detectors (`Between`, `Added`, `Removed`,
+`SeverityTransition`, `AccountabilityTransition`, `EvidenceTransition`). The
+history endpoint and the CLI therefore agree by construction; the text and
+`-json` renderers only format one result. An unknown mechanic name is refused
+rather than dropped, because a power this build does not understand must not
+compare as absent.
 
 Three properties make storing the observations and computing the transition the
 better shape:

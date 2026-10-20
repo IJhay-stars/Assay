@@ -207,5 +207,8 @@ func isMultiLine(oldBody []byte) bool {
 func decodeJSON(b []byte, out any) error {
 	dec := json.NewDecoder(bytes.NewReader(b))
 	dec.UseNumber()
-	return dec.Decode(out)
+	if err := dec.Decode(out); err != nil {
+		return fmt.Errorf("decode JSON: %w", err)
+	}
+	return nil
 }

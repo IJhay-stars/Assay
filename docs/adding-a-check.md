@@ -238,7 +238,7 @@ opposite of what happened.
 
 ### Recording provenance
 
-Two records are updated together, in the same commit:
+Three records are updated together, in the same commit:
 
 1. [`internal/mechanics/testdata/PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md)
    — append one row per file, `<case-name>/<file>` → the exact URL it came from.
@@ -254,9 +254,14 @@ Two records are updated together, in the same commit:
    refresh pipeline are in
    [docs/eval.md](eval.md#dataset-labeling-and-refresh); never overwrite an old
    capture without preserving its date and provenance.
+3. `<case-name>/metadata.json` — the record the eval actually loads: every
+   fixture file with its source URL and capture date, the expected verdict
+   (aggregate and per-check), and the `why`. The schema is documented in
+   [docs/eval.md](eval.md#subject-metadata). The eval fails until this file
+   exists and matches the directory.
 
-A subject is not ready until both records exist and the loader replays it. Then
-add the eval case as described in the next section, and see
+A subject is not ready until all three records exist and the loader replays
+it. Then add the eval case as described in the next section, and see
 ["Adding a subject"](eval.md#adding-a-subject) in `docs/eval.md` for the labelled
 set's own rules.
 
@@ -266,7 +271,7 @@ set's own rules.
 
 Detecting a flag is deterministic and uninteresting. What the eval measures is
 whether the model separates a trap from a legitimate compliance feature. So
-every new check adds **at least two** subjects to `TestEval`:
+every new check adds **at least two** subjects to the labelled set:
 
 1. One asset that should trip it.
 2. One asset with the **same mechanics used legitimately** that must not be
@@ -275,19 +280,30 @@ every new check adds **at least two** subjects to `TestEval`:
 Point 2 is the whole discipline. Any check can find `auth_revocable: true`; the
 reason to have a check is that it knows when that is fine.
 
-Each case carries a `why` string stating what it proves. It is printed on
+Each subject carries a `why` string stating what it proves. It is printed on
 failure, so a future maintainer learns what they broke rather than just seeing a
 number change.
 
-```go
+```json
 {
-	dir:          "your-case-name",
-	why:          "what this subject proves and why it is labelled this way",
-	wantBase:     mechanics.Medium,   // capability only, pre-escalation
-	wantSeverity: mechanics.Medium,   // after escalation
-	wantEscalated: false,
-	wantAccount:  mechanics.AccountabilityVerified,
-},
+  "schema_version": 1,
+  "subject": "your-case-name",
+  "why": "what this subject proves and why it is labelled this way",
+  "files": [
+    {"file": "asset.json", "url": "https://horizon.stellar.org/...", "captured": "2026-10-20"}
+  ],
+  "expected": {
+    "state": "valid",
+    "base": "medium",
+    "severity": "medium",
+    "escalated": false,
+    "undetermined": false,
+    "accountability": "verified",
+    "checks": {
+      "capability": {"severity": "medium", "mechanics": ["auth_revocable"]}
+    }
+  }
+}
 ```
 
 Then record the result and the reasoning in [docs/eval.md](eval.md).
@@ -324,7 +340,7 @@ Cite what you verified in the PR.
 ## Checklist
 
 ```sh
-make test    # go test -race ./...
+make test    # go test -race -shuffle=on ./...
 make lint    # golangci-lint
 make fmt     # gofmt -w .
 ```

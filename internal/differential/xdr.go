@@ -11,7 +11,11 @@ import (
 // base64Decode is a small alias so the parser reads without importing
 // encoding/base64 in three places.
 func base64Decode(s string) ([]byte, error) {
-	return base64.StdEncoding.DecodeString(s)
+	b, err := base64.StdEncoding.DecodeString(s)
+	if err != nil {
+		return nil, fmt.Errorf("differential: decode base64: %w", err)
+	}
+	return b, nil
 }
 
 // strkeyAlphabet is the base32 alphabet Stellar strkeys use. It is local to

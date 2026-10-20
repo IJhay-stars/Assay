@@ -11,7 +11,7 @@ SOURCE ?= assay-attester
 CONTRACT_ID ?= CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73
 
 .PHONY: all build build-release test test-notify test-preimage test-reproducibility cover lint fmt vet run clean \
-	offline-test \
+	offline-test e2e-standalone \
 	contract-test contract-lint contract-build \
 	build-contract deploy-testnet attest read verify-gate verify-wasm \
 	eval-record eval-compare
@@ -43,7 +43,7 @@ build-release:
 	CGO_ENABLED=0 go build -trimpath -buildvcs=false -o $(BINARY) ./cmd/assay
 
 test:
-	go test -race $(PKG)
+	go test -race -shuffle=on $(PKG)
 
 # test-notify exercises scripts/notify-scheduled-failure.sh against a stubbed
 # gh, covering open/update/comment/close and the "exactly one issue" rule. CI
@@ -66,6 +66,14 @@ test-reproducibility:
 # fails here until the specification and both implementations agree.
 test-preimage:
 	go test ./internal/attest/ -run IndependentEncoder -v
+
+# e2e-standalone joins the scanner and the contracts on a local quickstart
+# network (issue #463): fixture-derived Params are submitted with the stellar
+# CLI, then get_safety and the example gate are asserted. CI starts the network
+# with stellar/quickstart; locally, run `stellar container start local` first.
+# The script refuses a non-loopback RPC URL and never contacts a public network.
+e2e-standalone:
+	./scripts/e2e-standalone.sh
 
 # cover prints the same per-package table CI puts in the job summary
 # (scripts/coverage-report.sh), lowest coverage first. It reports; it does not

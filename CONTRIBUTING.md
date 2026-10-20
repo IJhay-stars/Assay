@@ -20,6 +20,30 @@ them through. If you find yourself writing a scam heuristic over domain
 names, stop — that layer already exists and is better maintained than
 anything we would write.
 
+## Which issue template to use
+
+Blank issues are disabled, because an actionable report needs evidence. Pick
+the template that matches what you have:
+
+| What you have | Template | What it asks for |
+| --- | --- | --- |
+| A proposed mechanic check | **Check proposal** | The asset that should trip it and a legitimate counter-example that must not be over-flagged |
+| A scan that disagrees with the ledger in the safe direction | **Scanner bug report** | The asset, the verbatim output, and the ledger record that contradicts it |
+| Severity inflation, a third-party signal presented as ours, injection, or a design flaw | **Security-adjacent report** | The finding and who it misleads, behind a routing checkpoint |
+| Anything that under-reports risk or fails open | *None — report privately* | [SECURITY.md](SECURITY.md) via the security advisory form or email |
+
+The last two rows are the line to get right. A public issue about a path that
+reports risk **lower** than the issuer's flags justify, admits an unattested or
+stale asset, or accepts a forged attestation is notice to everyone acting on
+the output before a fix exists; that belongs in the private channel. Systematic
+severity *inflation*, attribution problems, "could not check" rendered as
+"this is fine", and design flaws belong in public.
+
+A check proposal is not a bug report: nothing is implemented at proposal
+stage. It is where the judgment is argued, so it must name both the asset that
+should trip the check and an asset with the same mechanics used legitimately
+that must not be over-flagged.
+
 ## Debugging a verdict
 
 If Assay reports something unexpected for an asset, see [docs/debugging-a-verdict.md](docs/debugging-a-verdict.md) for a step-by-step workflow to trace the verdict to its cause and determine whether the discrepancy is in the live source ("the source says so") or in Assay's code.
@@ -53,7 +77,7 @@ Go development requires Go 1.26.9 or later. The `go` directive in
 `go.mod` is the source of truth for the minimum version.
 
 ```sh
-make test     # tests with -race
+make test     # tests with -race -shuffle=on
 make lint     # golangci-lint
 make cover    # per-package coverage table, lowest first
 make run      # start the API on :8080

@@ -61,7 +61,7 @@ jobs:
       # The default bash shell runs with pipefail, so tee does not hide a
       # failing test.
       - name: test
-        run: go test -race -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee go-test.log
+        run: go test -race -shuffle=on -covermode=atomic -coverprofile=coverage.out ./... 2>&1 | tee go-test.log
 
       # Per-package coverage, in the log and in the job summary. It reports and
       # does not gate: there is no threshold (#130). It also sends nothing to a

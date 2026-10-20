@@ -139,7 +139,7 @@ func readErrMarker(path string) (string, bool) {
 func readJSON(path string, out any) error {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("read %s: %w", path, err)
 	}
 	if err := json.Unmarshal(b, out); err != nil {
 		return fmt.Errorf("decode %s: %w", path, err)

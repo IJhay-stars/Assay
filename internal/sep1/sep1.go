@@ -594,7 +594,7 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sep1: build request %s: %w", target, err)
 	}
 	req.Header.Set("User-Agent", f.UserAgent)
 
@@ -626,7 +626,7 @@ func (f *Fetcher) fetch(ctx context.Context, target string) (*Doc, error) {
 func Parse(b []byte) (*Doc, error) {
 	var d Doc
 	if err := toml.Unmarshal(b, &d); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sep1: decode toml: %w", err)
 	}
 	return &d, nil
 }

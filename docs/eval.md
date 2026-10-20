@@ -11,9 +11,10 @@ Run it with `make test`. The eval is `TestEval` (aggregate) and
 `TestEvalPerCheck` (per check) in
 [`internal/mechanics/eval_test.go`](../internal/mechanics/eval_test.go); both
 run from fixtures with no network access, so a result cannot drift because a
-third-party API had a bad day. Their labels live in one place,
-[`internal/eval`](../internal/eval), so the aggregate and per-check
-expectations cannot describe different runs.
+third-party API had a bad day. Their labels come from each subject's
+`metadata.json` (see [Subject metadata](#subject-metadata)) and are loaded in
+one place by [`internal/eval`](../internal/eval), so the aggregate and
+per-check expectations cannot describe different runs.
 
 ## The labelled set
 
@@ -33,6 +34,47 @@ with provenance recorded in
 | `DOGE` (reputation outage) | **degraded** | The same real scam as the row above, captured with the StellarExpert directory unavailable. Neither legitimate nor trap: the correct answer is **undetermined**, and the subject exists so a source outage can never again be reported as a clean result (issue #23). |
 | `VELO` (no domain) | legitimate | An issuer account with no `home_domain` at all — the field is absent from the ledger record. Nothing was ever claimed, so accountability must be `unknown` rather than `unverified`, and severity must stay `clear` (#3). |
 | `synthetic-redirect-off-host` | **synthetic** | A home_domain whose stellar.toml redirects to an unrelated host, which the redirect rule refuses. The eval pins that accountability is unverified and the report names the refused host (#380). |
+
+## Subject metadata
+
+Every corpus subject carries a `metadata.json` beside its fixtures — source
+URLs, a capture date per file, the expected verdict, and the `why` — and it is
+the only place the eval's expectations live. `eval.Corpus` reads these files;
+no label is written in Go code. The parse is strict in both directions: a
+subject whose metadata is missing or malformed fails the whole eval (#112),
+because an expectation that cannot be stated must not be guessed.
+
+| Field | Meaning |
+| --- | --- |
+| `schema_version` | `1`. Any other value is refused, so a future layout change fails loudly instead of misparsing the fields it kept. |
+| `subject` | Must equal the directory name, so a copied file cannot label the wrong subject. |
+| `why` | What the subject proves. Printed on failure, so a maintainer learns what they broke rather than only seeing a number move. |
+| `files[]` | One entry per fixture file: `file`, the `url` it was captured from, and the `captured` date (UTC, `YYYY-MM-DD`). `note` carries qualifiers — an abridged payload, a constructed error marker, a derived synthetic file. The list must match the directory exactly: a listed file that does not exist, or a fixture file that is not listed, fails the load, so a re-capture cannot leave stale provenance behind. |
+| `expected.state` | `valid` — the verdict below is stated and enforced. `unknown` — the verdict is genuinely uncertain, so no verdict fields may accompany the state; the subject stays in the corpus marked unknown, and verdict comparisons skip it rather than guessing. |
+| `expected.base`, `expected.severity` | `clear`, `low`, `medium`, `high` or `critical`, parsed by the same strict parser reports use. |
+| `expected.escalated` | Whether reputation escalation is expected to fire. |
+| `expected.undetermined` | Whether the whole report is expected to be a partial answer. |
+| `expected.accountability` | `unknown`, `unverified` or `verified`. |
+| `expected.checks` | Per-check labels keyed by check ID: `severity` (required for a determined check), `escalation`, and `mechanics` by ledger name (`auth_revocable`, `blocklisted`, …). A check that could not conclude is `{"undetermined": true}` and may carry nothing else — an undetermined finding makes no severity claim. |
+
+The three states the loader enforces:
+
+- **valid** — metadata with dates, URLs and an expected verdict: the normal case.
+- **unknown** — a verdict that is genuinely uncertain is marked as such in the
+  metadata rather than given a guessed label. No current subject is unknown;
+  `TestCorpusMarksUnknownVerdictInsteadOfGuessing` pins the behaviour.
+- **missing** — a fixture without metadata fails the eval, so fixtures and
+  labels cannot drift apart (`TestCorpusFailsOnMissingMetadata`).
+
+Corpus membership itself — the list of subject directories — lives in
+`subjectDirs` in [`internal/eval/corpus.go`](../internal/eval/corpus.go); a
+directory with metadata that is not in the list is not a labelled subject.
+
+Two other machine-readable records sit beside these files and are unchanged:
+`manifest.json` is the dataset card (licence, labels, one capture date per
+subject), and [`PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md)
+is the human index of where each capture came from. `metadata.json` is the
+eval's contract: per-file provenance plus the verdict the eval enforces.
 
 ## Results
 
@@ -295,6 +337,10 @@ A fixture should carry at most one of a source's three states. If a payload and
 its error marker are both present, the payload wins, matching the existing
 `stellar.toml` precedence.
 
+Each subject directory also holds its `metadata.json`, which records those
+files with their source URLs and capture dates alongside the expected verdict
+— see [Subject metadata](#subject-metadata).
+
 ## Cross-version comparison
 
 Any change to a check can move verdicts, and pass/fail against fixed
@@ -368,10 +414,11 @@ mean the code is wrong. The label itself may be incorrect:
   (for example, a domain that was once malicious may now be clean).
 
 Before assuming the classifier is wrong, check the fixture against the
-live source and review the provenance in
-[`internal/mechanics/testdata/PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md).
-If the label needs correction, see the label change process in the
-dataset labeling section below.
+live source, the provenance in
+[`internal/mechanics/testdata/PROVENANCE.md`](../internal/mechanics/testdata/PROVENANCE.md),
+and the expected verdict in the subject's `metadata.json`. If the label needs
+correction, see the label change process in the dataset labeling section
+below.
 
 ## Coverage gaps
 
@@ -408,9 +455,14 @@ Stated plainly, because an eval that hides its gaps is marketing.
    failed at capture time, write its error marker (`directory.err`,
    `blocked.err`) instead of omitting the file, so a later reader can tell an
    outage from a source that was never consulted.
-2. Add a case to `TestEval` with the expected base, final, escalation, and
-   accountability — and a `why` string stating what the case proves. The `why`
-   is printed on failure, so a future maintainer learns what they broke.
+2. Write the subject's `metadata.json`: every fixture file with its source URL
+   and capture date, the expected base, final, escalation, undetermined and
+   accountability values, the per-check labels, and a `why` stating what the
+   case proves. The `why` is printed on failure, so a future maintainer learns
+   what they broke. Then add the directory to `subjectDirs` in
+   [`internal/eval/corpus.go`](../internal/eval/corpus.go). The eval fails
+   until the metadata exists — a subject without it has no expectation to run
+   against ([Subject metadata](#subject-metadata)).
 3. Every new check must add at least one subject that trips it **and** one with
    the same mechanics legitimately that must not be over-flagged.
 
@@ -419,9 +471,12 @@ to have a check is that it knows when that is fine.
 
 ## Dataset labeling and refresh
 
-The machine-readable record for this set is
-[`internal/mechanics/testdata/manifest.json`](../internal/mechanics/testdata/manifest.json).
-The fixture metadata is CC-BY-4.0 under the dataset directory's
+The machine-readable records for this set are
+[`internal/mechanics/testdata/manifest.json`](../internal/mechanics/testdata/manifest.json)
+— the dataset card: licence, labels, source URLs and one capture date per
+subject — and each subject's `metadata.json`, the eval's label contract
+([Subject metadata](#subject-metadata)). The fixture metadata is CC-BY-4.0
+under the dataset directory's
 [`LICENSE`](../internal/mechanics/testdata/LICENSE); Assay source code remains
 Apache-2.0 and upstream payloads remain subject to their providers' terms.
 
@@ -447,15 +502,18 @@ Apache-2.0 and upstream payloads remain subject to their providers' terms.
 ### Point-in-time refresh pipeline
 
 1. Re-fetch the URLs recorded for a subject and record one UTC capture date for
-  the refresh. `make refresh-fixture SUBJECT=<dir>` does this from the URLs in
-  `PROVENANCE.md`, prints the diff for review, and updates the capture date in
-  both `PROVENANCE.md` and the manifest. A source that fails aborts before
-  anything is written, so a fixture is never left partial.
+   the refresh. `make refresh-fixture SUBJECT=<dir>` does this from the URLs in
+   `PROVENANCE.md`, prints the diff for review, and updates the capture date in
+   both `PROVENANCE.md` and the manifest. A source that fails aborts before
+   anything is written, so a fixture is never left partial. Move the same
+   dates into the subject's `metadata.json` — the loader requires the file
+   list to match the directory, but only a reviewer can see that a date moved.
 2. Store only payloads whose current provider terms permit redistribution. For
   uncertain StellarExpert or issuer material, retain the URL and derived
   annotation rather than adding a new raw copy.
-3. Rebuild the expected labels and metrics from the captured files, update the
-  manifest atomically, and run `make test`.
+3. Rebuild the expected labels in each subject's `metadata.json` and the
+   metrics from the captured files, update the manifest atomically, and run
+   `make test`.
 4. Review the diff for source attribution, update `PROVENANCE.md`, and publish a
   new manifest version. Never overwrite an old capture without preserving its
   date and provenance.
@@ -465,7 +523,7 @@ Apache-2.0 and upstream payloads remain subject to their providers' terms.
 A disputed label is not silently edited. Open a correction with the fixture
 name, disputed field, evidence URL, observed date, and proposed replacement.
 After review, preserve the original annotation in the change history, update
-the manifest and provenance together, add or adjust the evaluation assertion,
-and record the reason for the correction. A disagreement without sufficient
-evidence remains `unresolved` in the correction record and is excluded from
-claims about model accuracy.
+the subject's `metadata.json`, the manifest and provenance together, add or
+adjust the evaluation assertion, and record the reason for the correction. A
+disagreement without sufficient evidence remains `unresolved` in the
+correction record and is excluded from claims about model accuracy.

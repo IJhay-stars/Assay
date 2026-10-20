@@ -57,6 +57,11 @@ type Observation struct {
 	Base mechanics.Severity `json:"base_severity"`
 	// Severity is the final severity the report produced.
 	Severity mechanics.Severity `json:"severity"`
+	// Accountability is who, if anyone, publicly claims the asset. It is kept
+	// beside severity rather than folded into it, exactly as Report reports it,
+	// so a diff between two saved reports can say whether the claim changed
+	// without re-reading a domain.
+	Accountability mechanics.Accountability `json:"accountability"`
 	// Undetermined reports that a source the observation depends on did not
 	// answer, so the observation is a partial answer and nothing may be
 	// concluded from what it omits.
@@ -84,6 +89,7 @@ func ObservationFromReport(rep *mechanics.Report) Observation {
 		Mechanics:          rep.Mechanics,
 		Base:               rep.Base,
 		Severity:           rep.Severity,
+		Accountability:     rep.Accountability,
 		Undetermined:       rep.Undetermined,
 		UndeterminedChecks: append([]string{}, rep.UndeterminedChecks...),
 		Evidence:           append([]mechanics.Evidence{}, rep.Evidence...),

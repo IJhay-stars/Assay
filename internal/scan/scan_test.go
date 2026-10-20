@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -523,7 +524,11 @@ func (t *singleHostTransport) RoundTrip(req *http.Request) (*http.Response, erro
 	u.Scheme = "http"
 	u.Host = t.host
 	req.URL = &u
-	return http.DefaultTransport.RoundTrip(req)
+	resp, err := http.DefaultTransport.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }
 
 // TestSubjectRecordsSkippedBlocklistWhenNoHomeDomain covers the missing state

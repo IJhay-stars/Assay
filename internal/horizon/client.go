@@ -276,7 +276,7 @@ func (c *Client) Trustlines(ctx context.Context, holder string) ([]TrustlineBala
 func (c *Client) get(ctx context.Context, path string, out any) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+path, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("horizon: build request %s: %w", path, err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("User-Agent", c.UserAgent)

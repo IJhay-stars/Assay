@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/use-assay/assay/internal/eval"
 	"github.com/use-assay/assay/internal/mechanics"
 )
 
@@ -18,7 +17,7 @@ import (
 // accidental bump is a visible diff rather than a silent one.
 func TestReportCarriesSchemaVersion(t *testing.T) {
 	eng := mechanics.NewEngine()
-	for _, tc := range eval.Corpus() {
+	for _, tc := range corpus(t) {
 		t.Run(tc.Dir, func(t *testing.T) {
 			rep, err := eng.Run(context.Background(), loadSubject(t, tc.Dir))
 			if err != nil {

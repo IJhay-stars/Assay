@@ -7,6 +7,31 @@ import (
 	"github.com/use-assay/assay/internal/mechanics"
 )
 
+// corpus loads the labelled set from the subjects' metadata.json files beside
+// their fixtures. A subject with missing or malformed metadata fails the load
+// (#112), so every test asserting corpus size goes through here.
+func corpus(t *testing.T) []eval.Label {
+	t.Helper()
+	labels, err := eval.Corpus("../mechanics/testdata")
+	if err != nil {
+		t.Fatalf("corpus: %v", err)
+	}
+	return labels
+}
+
+// labelledCorpusSize counts the subjects the confusion matrix can classify:
+// a subject whose verdict is marked unknown carries no expectation to agree
+// with, so BuildConfusionMatrix excludes it.
+func labelledCorpusSize(labels []eval.Label) int {
+	n := 0
+	for _, l := range labels {
+		if !l.Unknown {
+			n++
+		}
+	}
+	return n
+}
+
 func TestBuildConfusionMatrixStable(t *testing.T) {
 	engine := mechanics.NewEngine()
 	m1, err := eval.BuildConfusionMatrix(engine, "../mechanics/testdata")
@@ -38,8 +63,9 @@ func TestConfusionMatrixSampleSize(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build: %v", err)
 	}
-	if m.SampleSize != len(eval.Corpus()) {
-		t.Fatalf("sample size = %d, want %d", m.SampleSize, len(eval.Corpus()))
+	want := labelledCorpusSize(corpus(t))
+	if m.SampleSize != want {
+		t.Fatalf("sample size = %d, want %d", m.SampleSize, want)
 	}
 	for _, row := range m.SeverityRows {
 		if row.SampleSize == 0 {

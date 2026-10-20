@@ -270,7 +270,7 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	stat, err := s.Horizon.Asset(statCtx, a.Code, a.Issuer)
 	cancelStat()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: fetch asset record: %w", err)
 	}
 	sub.Stat = stat
 	// Each fetch stamps its own completion time. Later temporal statements —
@@ -283,7 +283,7 @@ func (s *Scanner) Subject(ctx context.Context, a mechanics.Asset) (*mechanics.Su
 	issuer, err := s.Horizon.Account(acctCtx, a.Issuer)
 	cancelAcct()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("scan: fetch issuer account: %w", err)
 	}
 	sub.Issuer = issuer
 	sub.IssuerFetchedAt = time.Now().UTC()

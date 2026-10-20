@@ -115,7 +115,7 @@ func NewRecorder(dir string, inner http.RoundTripper) (*Recorder, error) {
 func (r *Recorder) RoundTrip(req *http.Request) (*http.Response, error) {
 	resp, err := r.inner.RoundTrip(req)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("replay: forward request %s: %w", req.URL, err)
 	}
 	body, err := io.ReadAll(resp.Body)
 	_ = resp.Body.Close()

@@ -6,12 +6,14 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/use-assay/assay/internal/attest"
+	"github.com/use-assay/assay/internal/bundle"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/registry"
 	"github.com/use-assay/assay/internal/scan"
@@ -277,19 +279,80 @@ func bytesOr(b []byte) []byte {
 	return b
 }
 
+// verifyBundle checks an offline bundle: it recomputes the digest from the
+// archived preimage and verifies every file the manifest binds. It never reads
+// the chain and never scans. The exit code distinguishes a valid bundle (0)
+// from a tampered or incomplete one (1); a bundle that cannot be opened is an
+// error, because no verification happened.
+func verifyBundle(path string, asJSON bool, w io.Writer) (int, error) {
+	v, err := bundle.VerifyFile(path)
+	if err != nil {
+		return exitUnverifiable, fmt.Errorf("verify bundle %s: %w", path, err)
+	}
+
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(v); err != nil {
+			return exitGeneric, fmt.Errorf("verify: encode result: %w", err)
+		}
+	} else if v.OK {
+		_, _ = fmt.Fprintf(w, "OK %s\n", v.Asset)
+		_, _ = fmt.Fprintf(w, "digest: %s\n", v.ComputedDigest)
+		_, _ = fmt.Fprintf(w, "scanner: %s\n", v.Scanner)
+		_, _ = fmt.Fprintf(w, "preimage: %s (%s)\n", v.Preimage.Version, v.Preimage.Asset)
+		for _, note := range v.Notes {
+			_, _ = fmt.Fprintf(w, "note: %s\n", note)
+		}
+	} else {
+		_, _ = fmt.Fprintf(w, "MISMATCH %s\n", v.Asset)
+		for _, e := range v.Errors {
+			_, _ = fmt.Fprintf(w, "  %s\n", e)
+		}
+	}
+
+	if !v.OK {
+		return exitMismatch, nil
+	}
+	return exitSuccess, nil
+}
+
 func runVerify(args []string) error {
 	fs := flag.NewFlagSet("verify", flag.ContinueOnError)
 	maxAge := fs.Int64("max-age", 0, "treat an attestation older than this many seconds as stale (0 disables the age check)")
 	asJSON := fs.Bool("json", false, "print the verdict as JSON for scripting")
+	bundlePath := fs.String("bundle", "",
+		"verify an offline attestation bundle instead of a live scan (cannot be combined with -max-age)")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fmt.Errorf("verify: %w", err)
+	}
+	if *bundlePath != "" {
+		if fs.NArg() != 0 {
+			return fmt.Errorf("verify -bundle takes no asset argument (got %q)", fs.Arg(0))
+		}
+		if *maxAge != 0 {
+			return fmt.Errorf("verify -bundle cannot check -max-age: a bundle records the report, not when it was attested")
+		}
+		code, err := verifyBundle(*bundlePath, *asJSON, os.Stdout)
+		if err != nil {
+			// A bundle that cannot be read or parsed is not a mismatch: no
+			// claim could be checked at all. It gets the same exit code as an
+			// unverifiable scan so a script never reads "broken archive" as
+			// "the attestation disagrees".
+			fmt.Fprintln(os.Stderr, "assay:", err)
+			os.Exit(exitUnverifiable)
+		}
+		if code != exitSuccess {
+			os.Exit(code)
+		}
+		return nil
 	}
 	if fs.NArg() != 1 {
 		return fmt.Errorf("verify takes exactly one asset (CODE-ISSUER)")
 	}
 	asset, err := scan.ParseAsset(fs.Arg(0))
 	if err != nil {
-		return err
+		return fmt.Errorf("verify: %w", err)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -308,7 +371,7 @@ func runVerify(args []string) error {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		if err := enc.Encode(res); err != nil {
-			return err
+			return fmt.Errorf("verify: write: %w", err)
 		}
 	} else {
 		fmt.Printf("%s: %s\n", strings.ToUpper(string(res.Outcome)), res.Asset)

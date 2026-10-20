@@ -396,7 +396,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 	for attempt := 0; attempt < opts.Attempts; attempt++ {
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, target, nil)
 		if err != nil {
-			return false, err
+			return false, fmt.Errorf("stellarexpert: build request %s: %w", target, err)
 		}
 		req.Header.Set("Accept", "application/json")
 		req.Header.Set("User-Agent", c.UserAgent)
@@ -409,7 +409,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			t := opts.Backoff(attempt, 0)
 			if !wait(ctx, t) {
-				return false, ctx.Err()
+				return false, fmt.Errorf("stellarexpert: get %s: %w", target, ctx.Err())
 			}
 			continue
 		}
@@ -426,7 +426,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			t := opts.Backoff(attempt, retryAfter)
 			if !wait(ctx, t) {
-				return false, ctx.Err()
+				return false, fmt.Errorf("stellarexpert: get %s: %w", target, ctx.Err())
 			}
 			continue
 		}
@@ -437,7 +437,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			t := opts.Backoff(attempt, 0)
 			if !wait(ctx, t) {
-				return false, ctx.Err()
+				return false, fmt.Errorf("stellarexpert: get %s: %w", target, ctx.Err())
 			}
 			continue
 		}
@@ -450,7 +450,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			t := opts.Backoff(attempt, 0)
 			if !wait(ctx, t) {
-				return false, ctx.Err()
+				return false, fmt.Errorf("stellarexpert: read %s: %w", target, ctx.Err())
 			}
 			continue
 		}
@@ -461,7 +461,7 @@ func (c *Client) get(ctx context.Context, target string, out any) (bool, error) 
 			}
 			t := opts.Backoff(attempt, 0)
 			if !wait(ctx, t) {
-				return false, ctx.Err()
+				return false, fmt.Errorf("stellarexpert: decode %s: %w", target, ctx.Err())
 			}
 			continue
 		}

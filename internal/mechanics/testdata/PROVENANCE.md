@@ -2,6 +2,9 @@
 
 Captured 2026-08-10 from live public sources.
 Each directory is one labelled subject for the eval in docs/eval.md.
+This file is the human index; each subject's `metadata.json` is the
+machine-readable record the eval loads — per-file source URL, capture date,
+and the expected verdict.
 
 | file | source URL |
 | --- | --- |
@@ -53,8 +56,8 @@ Each directory is one labelled subject for the eval in docs/eval.md.
 | `usdz-clawback-regulated/stellar.toml` | https://zeam.money/.well-known/stellar.toml (captured 2026-09-27; abridged to the USDZ CURRENCIES entry, the DOCUMENTATION block, and the header — the full file lists many other assets and validators irrelevant to this subject) |
 | `usdz-clawback-regulated/blocked.json` | https://api.stellar.expert/explorer/directory/blocked-domains/zeam.money (captured 2026-09-27) |
 | `usdz-clawback-regulated/directory.json` | https://api.stellar.expert/explorer/directory/GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR (captured 2026-09-27) |
-| `synthetic-reputation-outage/*` | Not captured. Payload files are copies of `doge-noflags-scam` (2026-08-10); `blocked.err` is a constructed error marker (HTTP 429) added 2026-09-27 — see that directory's README. |
-| `synthetic-redirect-off-host/*` | Not captured. Payload files based on `aqua-clear-verified` (2026-08-10); `stellar.toml.err` records the cross-host redirect refusal error from redirect.example to other.example (#380) — see that directory's README. |
+| `synthetic-reputation-outage/*` | Not captured. Payload files are copies of `aqua-clear-verified` (2026-08-10); `blocked.err` is a constructed error marker (HTTP 429) added 2026-09-27 — see that directory's README. |
+| `synthetic-redirect-off-host/*` | Not captured. Payload files based on `aqua-clear-verified` (2026-08-10); `stellar.toml.err` records the cross-host redirect refusal error from redirect.example to other.example (added 2026-10-16, #380) — see that directory's README. |
 
 `doge-reputation-outage` is the same real asset as `doge-noflags-scam`, captured
 for the case where a source failed. Its `directory.err` is a deliberate marker,

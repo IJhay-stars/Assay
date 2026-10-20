@@ -1,17 +1,24 @@
 # The CLI
 
-`assay` is one binary with five subcommands. All of them print human-readable
-JSON by default; every subcommand that produces structured output also has a
-`-raw` form that prints tab-separated values, for scripts and CI.
+`assay` is one binary with several subcommands. Commands that emit a document
+(`scan`, `attestation`, `history`) print human-readable JSON by default, and
+scripts can ask for a tab-separated `-raw` form where one exists. `verify` and
+`diff` print a human-readable verdict by default and take `-json` for scripting.
 
 ```
 usage:
   assay scan CODE-ISSUER          classify one asset and print the report as JSON
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
-  assay verify [-hash HEX] [-raw] [PREIMAGE]
-                                  check a canonical preimage against an evidence_hash
+  assay verify [-json] [-max-age SECS] CODE-ISSUER
+                                  compare a live scan with the on-chain attestation
+  assay verify -bundle IN [-json]
+                                  verify an offline bundle without a network
+  assay diff [-json] A.json B.json
+                                  compare two saved reports and print what changed
   assay history [-guarantee] [-raw] CODE-ISSUER
                                   print the asset's observation history
+  assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
+                                  print the registry's attest/revoke events for an asset
   assay serve [-addr] [-history PATH]
                                   serve the HTTP API and UI
 ```
@@ -88,52 +95,88 @@ SEVERITY<TAB>FLAGS<TAB>HASH(version)<TAB>HASH(current)
 does not match the recorded one but the second does, the evidence is unchanged
 and it reports `ENCODING` rather than a misleading `MISMATCH`.
 
-## assay verify
-
-Checks a canonical preimage against an `evidence_hash`. It is the third-party
-half of `attestation`: the attester publishes the bytes with
-`assay attestation -preimage`, the registry stores the hash, and `verify`
-decides whether the two correspond. It replaces the two commands and a human
-comparing hex that verification used to be.
-
-It reaches nothing. The preimage names its own asset, and the hash either
-matches these bytes or it does not. The preimage is read from a file, or from
-stdin when the argument is omitted or `-`.
+`-bundle OUT` writes an offline verification bundle while deriving the
+attestation: the exact response bytes the scan read, the report, the preimage,
+the digest and the scanner identity. The scan is recorded into a private
+temporary directory first, so a failed scan leaves no half-written archive.
 
 ```
-./assay verify -hash 0x688453bd… preimage.txt   # verdict for a published preimage
-./assay verify -hash "$(cat digest.txt)" < preimage.txt
-./assay attestation -preimage CODE-ISSUER | jq -r .preimage | ./assay verify -hash 0x688453bd…
-./assay verify -raw -hash 0x688453bd… preimage.txt   # just the recomputed hash
+./assay attestation -bundle attestation.tar.gz CODE-ISSUER
+./assay verify -bundle attestation.tar.gz
+```
+
+See [offline-bundle.md](offline-bundle.md) for the archive layout and the
+redistribution rules.
+
+## assay verify
+
+Checks one asset end to end: re-scans it, recomputes the evidence hash, reads
+the on-chain attestation through the `stellar` CLI, and reports whether the two
+agree. It replaces two commands and a human comparing hex by eye.
+
+```
+./assay verify CODE-ISSUER
+./assay verify -json CODE-ISSUER
+./assay verify -max-age 3600 CODE-ISSUER   # also treat an old attestation as stale
 ```
 
 Flags:
 
-- `-hash` — the `evidence_hash` to check against, 64 hex characters, with or
-  without a `0x` prefix and in either case. Omitted, the command prints the hash
-  the bytes produce, which is the value to compare against what is stored.
-- `-asset` — also require the preimage to be for this `CODE-ISSUER`, so a
-  correct hash for the wrong asset cannot pass.
-- `-raw` — print only the recomputed hash.
-- `-quiet` — print nothing and report the verdict through the exit status alone.
+- `-max-age SECS` — treat an attestation older than this many seconds as stale.
+  `0` (the default) disables the age check; freshness is the caller's policy.
+- `-json` — print the full verdict as JSON for scripting.
 
-Semantics:
+The contract and network come from `ASSAY_CONTRACT_ID` and `ASSAY_NETWORK`,
+with the same defaults as the Makefile. The verdict classes are deliberately
+distinct, and each has its own exit code:
 
-- **match** — JSON with `match: true`, exit 0.
-- **mismatch** — JSON carrying both `computed` and `claimed`, exit non-zero.
-  Those two values are the whole answer, so they are printed before the failure.
-- **malformed hash** — refused as its own error rather than reported as a
-  mismatch, so a truncated or mistyped hash is not mistaken for a broken
-  attestation.
-- **unreadable header** — noted on stderr, and the hash is still checked. The
-  bytes are what the hash covers, so a cosmetic problem must not hide a real
-  mismatch.
+| Outcome | Meaning | Exit |
+| --- | --- | --- |
+| `agree` | the scan, recomputed hash and chain match | 0 |
+| `mismatch` | one or more of severity, flags or `evidence_hash` differs | 1 |
+| `stale` | they match, but the attestation is older than `-max-age` | 2 |
+| `absent` | no attestation exists on chain for this asset | 3 |
+| `unverifiable` | the scan is undetermined or unevaluated, so no verdict is possible | 4 |
 
-An unrecognised version line is a note rather than a failure, but it is not
-harmless: the version is inside the hash, so a version this build does not know
-reports itself rather than being compared against v1. A v1 preimage binds no
-check set and is reported as `unknown`, never as complete — the rule
-`docs/contract-interface.md` sets out.
+An undetermined scan never reports agreement. A mismatch names the differing
+fields and prints both sides.
+
+### Offline bundles
+
+`-bundle IN` verifies an archive written by `assay attestation -bundle`. It
+touches no network and runs no scan: it recomputes the digest from the archived
+preimage and checks every file the manifest binds.
+
+```
+./assay verify -bundle attestation.tar.gz
+./assay verify -bundle attestation.tar.gz -json
+```
+
+A valid bundle exits 0, a tampered or incomplete one exits 1, and an archive
+that cannot be opened exits 4 — a broken file is not a mismatch. `-max-age`
+cannot be combined with `-bundle`, because the archive records the report but
+not when the attestation was written. The format, the files it contains and
+the redistribution terms are in [offline-bundle.md](offline-bundle.md).
+
+## assay diff
+
+Compares two saved reports (`assay scan` output) and prints what moved:
+capability bits added and removed, severity movement, accountability movement,
+and evidence-only changes. It runs the same detectors the history API uses, so
+"what changed" has one definition across the CLI and HTTP surfaces.
+
+```
+./assay scan CODE-ISSUER > before.json
+# ... time passes ...
+./assay scan CODE-ISSUER > after.json
+./assay diff before.json after.json
+./assay diff -json before.json after.json
+```
+
+Both documents must carry the same `schema_version` and describe the same
+asset. An undetermined side is reported as undetermined, not as "no change";
+[transitions.md](transitions.md) defines each state. The command validates the
+saved files but does not re-derive either verdict.
 
 ## assay history
 

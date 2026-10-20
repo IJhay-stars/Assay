@@ -37,7 +37,7 @@ func run(args []string) error {
 	confusion := fs.Bool("confusion", false, "print the confusion matrix over the labelled corpus")
 	precisionRecall := fs.Bool("precision-recall", false, "with -confusion, emit precision and recall with a sample-size caveat")
 	if err := fs.Parse(args); err != nil {
-		return err
+		return fmt.Errorf("eval: %w", err)
 	}
 	if *out == "" && *compare == "" && !*confusion {
 		return fmt.Errorf("nothing to do: pass -out to record a run, -compare to diff one, or -confusion to print the matrix")
@@ -45,7 +45,7 @@ func run(args []string) error {
 
 	rec, err := eval.Run(mechanics.NewEngine(), *fixtures)
 	if err != nil {
-		return err
+		return fmt.Errorf("eval: %w", err)
 	}
 
 	if *out != "" {
@@ -70,7 +70,7 @@ func run(args []string) error {
 	if *confusion {
 		matrix, err := eval.BuildConfusionMatrix(mechanics.NewEngine(), *fixtures)
 		if err != nil {
-			return err
+			return fmt.Errorf("confusion matrix: %w", err)
 		}
 		matrix.Print(*precisionRecall)
 	}
@@ -81,16 +81,19 @@ func run(args []string) error {
 func writeRecord(path string, rec *eval.Record) error {
 	b, err := json.MarshalIndent(rec, "", "  ")
 	if err != nil {
-		return err
+		return fmt.Errorf("encode record: %w", err)
 	}
 	b = append(b, '\n')
-	return os.WriteFile(path, b, 0o644)
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
 }
 
 func readRecord(path string) (*eval.Record, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
 	var rec eval.Record
 	if err := json.Unmarshal(b, &rec); err != nil {

@@ -1,6 +1,16 @@
 package eval
 
-import "github.com/use-assay/assay/internal/mechanics"
+import (
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"time"
+
+	"github.com/use-assay/assay/internal/mechanics"
+)
 
 // CheckLabel is the expected output of one check on one subject.
 //
@@ -22,13 +32,23 @@ type CheckLabel struct {
 // Label is the expected classification of one corpus subject. It carries the
 // aggregate expectation (Base/Severity/Escalated/Accountability) and the
 // per-check expectations (Checks) that #115 requires, so a wrong check cannot
-// hide behind a right total.
+// hide behind a right total. Labels are parsed from the subject's
+// metadata.json beside its fixtures; Corpus never constructs one from
+// anything else.
 type Label struct {
 	// Dir is the fixture directory under the corpus root.
 	Dir string
 	// Why states what the subject proves. It is printed on failure so a
 	// maintainer learns what they broke rather than only seeing a number move.
 	Why string
+
+	// Unknown marks a subject whose metadata deliberately states no verdict
+	// (state "unknown"): the verdict is genuinely uncertain and recording one
+	// would be a guess. Tests that compare verdicts skip an unknown subject
+	// instead of inventing an expectation for it, while the subject stays in
+	// the corpus so its fixtures are still loaded and its provenance still
+	// enforced (#112).
+	Unknown bool
 
 	Base      mechanics.Severity
 	Severity  mechanics.Severity
@@ -48,205 +68,263 @@ type Label struct {
 	Checks map[string]CheckLabel
 }
 
-// Corpus is the labelled set. Every subject is a real pubnet asset; fixtures
-// and provenance are under internal/mechanics/testdata, and the rationale for
-// each label is in docs/eval.md.
+// subjectDirs is the labelled set's membership: every entry must carry a
+// metadata.json under the corpus root or Corpus fails. Membership is the only
+// thing about the set that lives in Go code; the verdicts, capture dates,
+// source URLs and rationale live in each subject's metadata.json beside its
+// fixtures, so they are edited next to the files they describe (#112).
+var subjectDirs = []string{
+	"aqua-clear-verified",
+	"shx-clear-flagslocked",
+	"xrp-clear-unlocked",
+	"usdz-clawback-regulated",
+	"usdc-revocable-regulated",
+	"berkshire-clawback-scam",
+	"doge-noflags-scam",
+	"doge-reputation-outage",
+	"velo-no-home-domain",
+	"synthetic-redirect-off-host",
+}
+
+// metadataSchemaVersion is the schema_version Corpus accepts. It is pinned
+// rather than defaulted so a future layout change is a loud load failure in
+// every subject at once, not a silent misparse of the fields it kept.
+const metadataSchemaVersion = 1
+
+// nonFixtureFiles are the files a subject directory may hold without being
+// listed in metadata.json: the metadata itself, and the optional README that
+// documents a synthetic fixture's construction. Everything else in the
+// directory is a fixture file and must be listed with its source URL and
+// capture date, so a file cannot sit beside the corpus unprovenanced.
+var nonFixtureFiles = map[string]bool{
+	"metadata.json": true,
+	"README.md":     true,
+}
+
+// metadata is the on-disk form of one subject's labels, stored as
+// <fixturesDir>/<dir>/metadata.json. Field names and the valid/unknown states
+// are documented in docs/eval.md.
+type metadata struct {
+	SchemaVersion int         `json:"schema_version"`
+	Subject       string      `json:"subject"`
+	Why           string      `json:"why"`
+	Files         []fileEntry `json:"files"`
+	Expected      expected    `json:"expected"`
+}
+
+// fileEntry is one fixture file, the URL it was captured from, and the UTC
+// date of that capture. Note carries an optional qualifier (an abridged
+// payload, a constructed error marker, a derived synthetic file).
+type fileEntry struct {
+	File     string `json:"file"`
+	URL      string `json:"url"`
+	Captured string `json:"captured"`
+	Note     string `json:"note,omitempty"`
+}
+
+// expected is the labelled verdict. State selects between the two states:
+// "valid" carries a full verdict, "unknown" refuses to state one.
 //
-// The per-check labels are derived from the same fixtures the aggregate labels
-// are, so the two cannot describe different runs: TestEval and TestEvalPerCheck
-// both iterate this corpus.
-func Corpus() []Label {
-	return []Label{
-		{
-			Dir: "aqua-clear-verified",
-			Why: "no auth flags at all: the issuer has no power over holders, and a " +
-				"reciprocal domain confirms who it is",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Accountability: mechanics.AccountabilityVerified,
-			Checks: map[string]CheckLabel{
-				"capability":  {Severity: mechanics.Clear},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
-		{
-			Dir: "shx-clear-flagslocked",
-			Why: "no auth flags AND auth_immutable: the issuer can never add freeze " +
-				"or clawback later",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Accountability: mechanics.AccountabilityVerified,
-			Checks: map[string]CheckLabel{
-				"capability":  {Severity: mechanics.Clear},
-				"mutability":  {Severity: mechanics.Clear, Mechanics: mechanics.MechFlagsLocked},
-				"sep1-domain": {Severity: mechanics.Clear},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
-		{
-			Dir: "xrp-clear-unlocked",
-			Why: "the unlocked counterpart to SHX: no auth flags, but auth_immutable " +
-				"is UNSET. The mutability finding must report that without moving " +
-				"base severity off clear.",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Accountability: mechanics.AccountabilityVerified,
-			Checks: map[string]CheckLabel{
-				"capability":  {Severity: mechanics.Clear},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
-		{
-			Dir: "usdz-clawback-regulated",
-			Why: "the confirmed-legitimate clawback control asset (docs/eval.md " +
-				"coverage-gaps). USDZ (Zeam Money, zeam.money) carries both " +
-				"auth_revocable and auth_clawback_enabled, so capability alone " +
-				"puts it at high — and it must NOT be escalated: the domain " +
-				"publishes a reciprocal stellar.toml that names the exact issuer, " +
-				"the directory tag is 'issuer' (not 'malicious'), and no " +
-				"blocklist entry exists. The severity model's central claim is " +
-				"that it treats legitimate clawback fairly; this subject is the " +
-				"only one in the set that measures that claim.",
-			Base:           mechanics.High,
-			Severity:       mechanics.High,
-			Escalated:      false,
-			Accountability: mechanics.AccountabilityVerified,
-			Checks: map[string]CheckLabel{
-				"capability": {
-					Severity:  mechanics.High,
-					Mechanics: mechanics.MechAuthRevocable | mechanics.MechClawbackEnabled,
-				},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
-		{
-			Dir: "usdc-revocable-regulated",
-			Why: "a real regulated stablecoin that legitimately uses auth_revocable. It " +
-				"must report freeze-capable (medium) on the strength of the flag alone.",
-			Base:           mechanics.Medium,
-			Severity:       mechanics.Medium,
-			Accountability: mechanics.AccountabilityUnverified,
-			Checks: map[string]CheckLabel{
-				"capability": {Severity: mechanics.Medium, Mechanics: mechanics.MechAuthRevocable},
-				"mutability": {Severity: mechanics.Clear},
-				// circle.com does not serve a stellar.toml, so the reciprocal
-				// claim genuinely fails and the unverified bit is set.
-				"sep1-domain": {Severity: mechanics.Clear, Mechanics: mechanics.MechDomainUnverified},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
-		{
-			Dir: "berkshire-clawback-scam",
-			Why: "impersonation asset with clawback: capability alone puts it at high, " +
-				"and the curated malicious tag escalates it to critical",
-			Base:           mechanics.High,
-			Severity:       mechanics.Critical,
-			Escalated:      true,
-			Accountability: mechanics.AccountabilityUnverified,
-			Checks: map[string]CheckLabel{
-				"capability": {
-					Severity:  mechanics.High,
-					Mechanics: mechanics.MechAuthRevocable | mechanics.MechClawbackEnabled,
-				},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear, Mechanics: mechanics.MechDomainUnverified},
-				"reputation": {
-					Severity:   mechanics.Critical,
-					Escalation: true,
-					Mechanics:  mechanics.MechBlocklisted,
-				},
-			},
-		},
-		{
-			Dir: "doge-noflags-scam",
-			Why: "the case that justifies keeping reputation as a separate upward-only " +
-				"axis: a known scam asset carrying NO auth flags. Capability is honestly " +
-				"clear, and escalation is the only thing that catches it. This is also " +
-				"the fixture the check-suppression test uses, because it is the case " +
-				"with the largest consequence.",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Critical,
-			Escalated:      true,
-			Accountability: mechanics.AccountabilityUnverified,
-			Checks: map[string]CheckLabel{
-				"capability":  {Severity: mechanics.Clear},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear, Mechanics: mechanics.MechDomainUnverified},
-				"reputation": {
-					Severity:   mechanics.Critical,
-					Escalation: true,
-					Mechanics:  mechanics.MechBlocklisted,
-				},
-			},
-		},
-		{
-			Dir: "doge-reputation-outage",
-			Why: "the regression from #23 expressed as a fixture: the same real DOGE " +
-				"trap as doge-noflags-scam, but the StellarExpert directory that " +
-				"carries its malicious tag is unavailable. The blocklist endpoint " +
-				"did answer ('not blocked'), which is exactly why this case matters: " +
-				"the source that would have escalated is the one that failed, so the " +
-				"honest verdict is undetermined, not clear. Before the directory.err " +
-				"marker existed this fixture was indistinguishable from a source that " +
-				"had answered 'not listed', which is how an outage was once reported " +
-				"as a clean reputation result.",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Escalated:      false,
-			Undetermined:   true,
-			Accountability: mechanics.AccountabilityUnverified,
-			Checks: map[string]CheckLabel{
-				"capability": {Severity: mechanics.Clear},
-				"mutability": {Severity: mechanics.Clear},
-				"sep1-domain": {
-					Severity:  mechanics.Clear,
-					Mechanics: mechanics.MechDomainUnverified,
-				},
-				"reputation": {Undetermined: true},
-			},
-		},
-		{
-			Dir: "velo-no-home-domain",
-			Why: "an issuer account that carries no home_domain at all: the domain " +
-				"claim is absent rather than wrong, so accountability must be unknown " +
-				"not unverified, and severity must stay clear (#3)",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Undetermined:   true,
-			Accountability: mechanics.AccountabilityUnknown,
-			Checks: map[string]CheckLabel{
-				"capability": {Severity: mechanics.Clear},
-				"mutability": {Severity: mechanics.Clear},
-				// No domain was ever advertised, so the finding is unknown, not
-				// a failed verification - and still carries the unverified bit,
-				// because no identity was published to verify against.
-				"sep1-domain": {Severity: mechanics.Clear, Mechanics: mechanics.MechDomainUnverified},
-				// With no home_domain there is no domain to key the blocklist
-				// on, so the reputation question cannot be put at all: the
-				// finding is undetermined, never a clean result.
-				"reputation": {Undetermined: true},
-			},
-		},
-		{
-			Dir: "synthetic-redirect-off-host",
-			Why: "a home_domain whose stellar.toml redirects to an unrelated host, " +
-				"which the redirect rule refuses: accountability must be unverified " +
-				"and evidence must name the refused host (#380)",
-			Base:           mechanics.Clear,
-			Severity:       mechanics.Clear,
-			Accountability: mechanics.AccountabilityUnverified,
-			Checks: map[string]CheckLabel{
-				"capability":  {Severity: mechanics.Clear},
-				"mutability":  {Severity: mechanics.Clear},
-				"sep1-domain": {Severity: mechanics.Clear, Mechanics: mechanics.MechDomainUnverified},
-				"reputation":  {Severity: mechanics.Clear, Escalation: true},
-			},
-		},
+// The verdict fields are pointers so presence can be enforced: a "valid"
+// subject that omits, say, accountability fails to load rather than silently
+// reading as the empty value, because a label the file never stated must not
+// become an expectation the eval enforces.
+type expected struct {
+	State          string                    `json:"state"`
+	Base           *mechanics.Severity       `json:"base,omitempty"`
+	Severity       *mechanics.Severity       `json:"severity,omitempty"`
+	Escalated      *bool                     `json:"escalated,omitempty"`
+	Undetermined   *bool                     `json:"undetermined,omitempty"`
+	Accountability *mechanics.Accountability `json:"accountability,omitempty"`
+	Checks         map[string]expectedCheck  `json:"checks,omitempty"`
+}
+
+// expectedCheck is one per-check expectation. Severity is a pointer for the
+// same reason as in expected: a determined check must state one, and an
+// undetermined check must state none.
+type expectedCheck struct {
+	Undetermined bool                `json:"undetermined,omitempty"`
+	Severity     *mechanics.Severity `json:"severity,omitempty"`
+	Escalation   bool                `json:"escalation,omitempty"`
+	Mechanics    []string            `json:"mechanics,omitempty"`
+}
+
+// Corpus is the labelled set, loaded from the subjects' metadata.json files
+// under fixturesDir.
+//
+// Every entry of subjectDirs must carry a well-formed metadata.json, or
+// Corpus fails: a subject without metadata, or with metadata that does not
+// parse, has no expectation to eval against, and the eval refuses to proceed
+// on a guessed one (#112). The per-check labels come from the same file as
+// the aggregate labels, so the two cannot describe different runs: TestEval
+// and TestEvalPerCheck both iterate this corpus.
+//
+// Fixtures and provenance are under internal/mechanics/testdata; the schema
+// and the labelling rationale are in docs/eval.md.
+func Corpus(fixturesDir string) ([]Label, error) {
+	labels := make([]Label, 0, len(subjectDirs))
+	for _, dir := range subjectDirs {
+		l, err := loadLabel(fixturesDir, dir)
+		if err != nil {
+			return nil, err
+		}
+		labels = append(labels, l)
 	}
+	return labels, nil
+}
+
+// loadLabel reads and validates one subject's metadata.json.
+//
+// The parse is strict in both directions: fields a "valid" verdict must state
+// are required rather than defaulted, and fields an "unknown" verdict must
+// not state are rejected rather than ignored, so a half-written subject fails
+// to load instead of quietly becoming a weaker label.
+func loadLabel(fixturesDir, dir string) (Label, error) {
+	base := filepath.Join(fixturesDir, dir)
+	b, err := os.ReadFile(filepath.Join(base, "metadata.json"))
+	if err != nil {
+		return Label{}, fmt.Errorf("corpus subject %s: read metadata.json: %w", dir, err)
+	}
+	var m metadata
+	if err := json.Unmarshal(b, &m); err != nil {
+		return Label{}, fmt.Errorf("corpus subject %s: decode metadata.json: %w", dir, err)
+	}
+	if m.SchemaVersion != metadataSchemaVersion {
+		return Label{}, fmt.Errorf("corpus subject %s: metadata schema_version = %d, want %d",
+			dir, m.SchemaVersion, metadataSchemaVersion)
+	}
+	if m.Subject != dir {
+		return Label{}, fmt.Errorf("corpus subject %s: metadata names subject %q, want the directory name",
+			dir, m.Subject)
+	}
+	if strings.TrimSpace(m.Why) == "" {
+		return Label{}, fmt.Errorf("corpus subject %s: metadata carries no why", dir)
+	}
+	if err := checkFiles(base, m.Files); err != nil {
+		return Label{}, fmt.Errorf("corpus subject %s: %w", dir, err)
+	}
+
+	label := Label{Dir: dir, Why: m.Why}
+	switch m.Expected.State {
+	case "valid":
+		v := m.Expected
+		if v.Base == nil || v.Severity == nil || v.Escalated == nil ||
+			v.Undetermined == nil || v.Accountability == nil {
+			return Label{}, fmt.Errorf("corpus subject %s: valid verdict must state base, severity, "+
+				"escalated, undetermined and accountability", dir)
+		}
+		switch *v.Accountability {
+		case mechanics.AccountabilityUnknown, mechanics.AccountabilityUnverified,
+			mechanics.AccountabilityVerified:
+		default:
+			return Label{}, fmt.Errorf("corpus subject %s: unknown accountability %q",
+				dir, *v.Accountability)
+		}
+		if len(v.Checks) == 0 {
+			return Label{}, fmt.Errorf("corpus subject %s: valid verdict must state per-check expectations", dir)
+		}
+		checks, err := loadChecks(v.Checks)
+		if err != nil {
+			return Label{}, fmt.Errorf("corpus subject %s: %w", dir, err)
+		}
+		label.Base = *v.Base
+		label.Severity = *v.Severity
+		label.Escalated = *v.Escalated
+		label.Undetermined = *v.Undetermined
+		label.Accountability = *v.Accountability
+		label.Checks = checks
+	case "unknown":
+		v := m.Expected
+		if v.Base != nil || v.Severity != nil || v.Escalated != nil ||
+			v.Undetermined != nil || v.Accountability != nil || len(v.Checks) > 0 {
+			return Label{}, fmt.Errorf("corpus subject %s: unknown verdict must not carry a "+
+				"verdict alongside its state", dir)
+		}
+		label.Unknown = true
+	default:
+		return Label{}, fmt.Errorf("corpus subject %s: expected.state = %q, want %q or %q",
+			dir, m.Expected.State, "valid", "unknown")
+	}
+	return label, nil
+}
+
+// loadChecks converts one subject's per-check expectations.
+func loadChecks(in map[string]expectedCheck) (map[string]CheckLabel, error) {
+	out := make(map[string]CheckLabel, len(in))
+	for id, c := range in {
+		if c.Undetermined {
+			if c.Severity != nil || c.Escalation || len(c.Mechanics) > 0 {
+				return nil, fmt.Errorf("check %s: undetermined label must not carry a severity, "+
+					"escalation or mechanics — an undetermined finding makes no claim", id)
+			}
+			out[id] = CheckLabel{Undetermined: true}
+			continue
+		}
+		if c.Severity == nil {
+			return nil, fmt.Errorf("check %s: determined label must state a severity", id)
+		}
+		mechanicsBits, err := mechanics.ParseMechanicNames(c.Mechanics)
+		if err != nil {
+			return nil, fmt.Errorf("check %s: %w", id, err)
+		}
+		out[id] = CheckLabel{
+			Severity:   *c.Severity,
+			Escalation: c.Escalation,
+			Mechanics:  mechanicsBits,
+		}
+	}
+	return out, nil
+}
+
+// checkFiles pins a subject's file list to its directory contents in both
+// directions: every listed file must exist, and every fixture file present
+// must be listed. Either direction failing means the fixtures and their
+// provenance have drifted apart — a re-capture that renamed a payload, or a
+// new file with no URL and no date — and the eval must not proceed on
+// provenance it cannot state (#112).
+func checkFiles(base string, files []fileEntry) error {
+	if len(files) == 0 {
+		return fmt.Errorf("metadata records no files")
+	}
+	listed := make(map[string]bool, len(files))
+	for _, f := range files {
+		if f.File == "" {
+			return fmt.Errorf("metadata lists a file with no name")
+		}
+		if f.File != filepath.Base(f.File) {
+			return fmt.Errorf("metadata lists %q, want a bare file name", f.File)
+		}
+		if listed[f.File] {
+			return fmt.Errorf("metadata lists file %q twice", f.File)
+		}
+		listed[f.File] = true
+		if f.Captured == "" {
+			return fmt.Errorf("file %s: no capture date", f.File)
+		}
+		if _, err := time.Parse("2006-01-02", f.Captured); err != nil {
+			return fmt.Errorf("file %s: capture date %q, want YYYY-MM-DD", f.File, f.Captured)
+		}
+		u, err := url.Parse(f.URL)
+		if err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("file %s: url %q is not an absolute URL", f.File, f.URL)
+		}
+		if _, err := os.Stat(filepath.Join(base, f.File)); err != nil {
+			return fmt.Errorf("metadata lists file %s which is not in the fixture directory: %w",
+				f.File, err)
+		}
+	}
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		return fmt.Errorf("read fixture directory: %w", err)
+	}
+	for _, e := range entries {
+		if e.IsDir() || nonFixtureFiles[e.Name()] {
+			continue
+		}
+		if !listed[e.Name()] {
+			return fmt.Errorf("fixture file %q is not listed in metadata.json with its source "+
+				"URL and capture date", e.Name())
+		}
+	}
+	return nil
 }
