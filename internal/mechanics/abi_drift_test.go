@@ -259,8 +259,8 @@ func TestABIDriftInterfaceVersion(t *testing.T) {
 	if !ok {
 		t.Fatal("rust INTERFACE_VERSION missing")
 	}
-	if got != 1 {
-		t.Errorf("INTERFACE_VERSION drift: got %d, want 1", got)
+	if got != 3 {
+		t.Errorf("INTERFACE_VERSION drift: got %d, want 3", got)
 	}
 }
 
@@ -302,6 +302,7 @@ func TestABIDriftSafetyStructShape(t *testing.T) {
 		{"flags", "u32"},
 		{"evidence_hash", "BytesN<32>"},
 		{"attested_at", "u64"},
+		{"preimage_version", "u32"},
 	}
 
 	if len(gotFields) != len(wantFields) {

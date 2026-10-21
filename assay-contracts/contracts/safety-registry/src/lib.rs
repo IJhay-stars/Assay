@@ -91,7 +91,7 @@ pub const POLICY_MASK_FREEZE_INCLUSIVE: u32 = MECH_AUTH_REVOCABLE | MECH_CLAWBAC
 /// entrypoints do not require a bump; removing or renaming one does. Version 1
 /// established the interface with [`Self::version`]; version 2 adds
 /// [`Self::cancel_admin_transfer`] and the [`AdminTransferCancelled`] event.
-pub const INTERFACE_VERSION: u32 = 2;
+pub const INTERFACE_VERSION: u32 = 3;
 
 /// Event emitted on every successful `attest` write. Rejected attestations
 /// (`InvalidSeverity`, `InconsistentAttestation`, unauthorized caller) publish
@@ -205,6 +205,9 @@ pub struct Safety {
     /// time and is independent of off-chain scanner host clocks. See
     /// `docs/timestamps.md`.
     pub attested_at: u64,
+    /// The version of the preimage encoding used to produce `evidence_hash`,
+    /// so a verifier does not have to guess which encoding produced the hash.
+    pub preimage_version: u32,
 }
 
 /// Event emitted when an attestation is written or overwritten.
@@ -324,6 +327,7 @@ fn write_attestation(
     flags: u32,
     evidence_hash: BytesN<32>,
     attested_at: u64,
+    preimage_version: u32,
 ) {
     let key = DataKey::Safety(asset.clone());
     let safety = Safety {
@@ -331,6 +335,7 @@ fn write_attestation(
         flags,
         evidence_hash,
         attested_at,
+        preimage_version,
     };
     env.storage().persistent().set(&key, &safety);
     extend_attestation(env, &key);
@@ -508,6 +513,8 @@ impl SafetyRegistry {
 
         validate_attestation(severity, flags)?;
 
+        let preimage_version = 4; // v4 encoding with scanner identity
+
         write_attestation(
             &env,
             asset,
@@ -515,6 +522,7 @@ impl SafetyRegistry {
             flags,
             evidence_hash,
             env.ledger().timestamp(),
+            preimage_version,
         );
         extend_instance(&env);
         Ok(())
@@ -606,6 +614,7 @@ impl SafetyRegistry {
         // Phase two: write. One ledger timestamp for the whole batch, read once
         // so every element agrees on it.
         let attested_at = env.ledger().timestamp();
+        let preimage_version = 4; // v4 encoding with scanner identity
         for a in attestations.iter() {
             write_attestation(
                 &env,
@@ -614,6 +623,7 @@ impl SafetyRegistry {
                 a.flags,
                 a.evidence_hash.clone(),
                 attested_at,
+                preimage_version,
             );
         }
         extend_instance(&env);

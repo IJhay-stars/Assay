@@ -42,6 +42,7 @@ pub struct Safety {
     pub flags: u32,                // mechanic bitset
     pub evidence_hash: BytesN<32>, // sha256 of the evidence bundle
     pub attested_at: u64,          // ledger timestamp
+    pub preimage_version: u32,     // encoding version used to produce evidence_hash
 }
 
 // One element of an attest_many batch: the arguments of attest(), grouped.
@@ -58,7 +59,7 @@ pub const MAX_BATCH_SIZE: u32 = 50;
 
 /// The contract's interface version, bumped on every ABI change. See
 /// "Interface versioning" below for the bump rule.
-pub const INTERFACE_VERSION: u32 = 2;
+pub const INTERFACE_VERSION: u32 = 3;
 
 pub fn get_safety(env: Env, asset: Address) -> Option<Safety>;
 pub fn version(env: Env) -> u32;

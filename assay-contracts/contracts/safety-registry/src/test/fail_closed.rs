@@ -139,6 +139,7 @@ fn fail_closed_gate_refuses_confiscation_when_the_write_time_check_is_bypassed()
                 flags: MECH_CLAWBACK_ENABLED,
                 evidence_hash: hash(&env),
                 attested_at: env.ledger().timestamp(),
+                preimage_version: 0,
             },
         );
     });

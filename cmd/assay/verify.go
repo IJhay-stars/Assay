@@ -57,12 +57,14 @@ const (
 )
 
 // OnChainSafety mirrors the registry's get_safety return: the stored
-// attestation for one asset.
+// attestation for one asset, now including the preimage version so a
+// verifier does not have to guess which encoding produced the hash.
 type OnChainSafety struct {
-	Severity     uint32 `json:"severity"`
-	Flags        uint32 `json:"flags"`
-	EvidenceHash string `json:"evidence_hash"`
-	AttestedAt   int64  `json:"attested_at"`
+	Severity      uint32 `json:"severity"`
+	Flags         uint32 `json:"flags"`
+	EvidenceHash  string `json:"evidence_hash"`
+	AttestedAt    int64  `json:"attested_at"`
+	PreimageVersion uint32 `json:"preimage_version"`
 }
 
 // registryReader reads the on-chain attestation for one asset. It is an
@@ -368,13 +370,13 @@ func runVerify(args []string) error {
 		}
 		if len(res.Fields) > 0 {
 			fmt.Println("differing fields:", strings.Join(res.Fields, ", "))
-			if res.Local != nil {
-				fmt.Printf("local: severity=%d flags=%d evidence_hash=%s\n",
+		if res.Local != nil {
+			fmt.Printf("local: severity=%d flags=%d evidence_hash=%s\n",
 					res.Local.Severity, res.Local.Flags, res.Local.EvidenceHash)
 			}
-			if res.Chain != nil {
-				fmt.Printf("chain: severity=%d flags=%d evidence_hash=%s attested_at=%d\n",
-					res.Chain.Severity, res.Chain.Flags, res.Chain.EvidenceHash, res.Chain.AttestedAt)
+		if res.Chain != nil {
+			fmt.Printf("chain: severity=%d flags=%d evidence_hash=%s attested_at=%d preimage_version=%d\n",
+					res.Chain.Severity, res.Chain.Flags, res.Chain.EvidenceHash, res.Chain.AttestedAt, res.Chain.PreimageVersion)
 			}
 		}
 	}

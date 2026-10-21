@@ -131,6 +131,7 @@ pub struct Safety {
     pub flags: u32,                // mechanic bitset
     pub evidence_hash: BytesN<32>, // sha256 of the evidence preimage
     pub attested_at: u64,          // ledger timestamp of the write
+    pub preimage_version: u32,     // encoding version used to produce evidence_hash
 }
 ```
 

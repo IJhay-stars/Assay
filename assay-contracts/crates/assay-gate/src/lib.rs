@@ -45,6 +45,7 @@ pub struct Safety {
     pub flags: u32,
     pub evidence_hash: BytesN<32>,
     pub attested_at: u64,
+    pub preimage_version: u32,
 }
 
 /// The part of the registry this crate's callers use.
@@ -160,6 +161,7 @@ mod test {
             flags,
             evidence_hash: BytesN::from_array(&env, &[7u8; 32]),
             attested_at,
+            preimage_version: 0,
         }
     }
 
