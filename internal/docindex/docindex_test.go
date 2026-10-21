@@ -5,6 +5,7 @@
 package docindex
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -52,7 +53,7 @@ func readDocsMarkdown(t *testing.T, root string) []string {
 		}
 		rel, err := filepath.Rel(root, path)
 		if err != nil {
-			return err
+			return fmt.Errorf("rel %s to %s: %w", root, path, err)
 		}
 		files = append(files, filepath.ToSlash(rel))
 		return nil

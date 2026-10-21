@@ -105,14 +105,18 @@ jobs:
   # only, no race detector, no coverage, no matrix for the rest of the module.
   # Explicit versions rather than `stable`: setup-go resolves `stable` to a
   # moving target, which is the same trap the main job's go-version-file pin
-  # avoids for golangci-lint.
+  # avoids for golangci-lint. The floor leg is pinned to the exact go.mod
+  # floor, not `1.26.x`: the x-range resolves from the actions/go-versions
+  # manifest, which can lag a fresh patch release and would install a
+  # toolchain below the floor that GOTOOLCHAIN=local then refuses to build
+  # with. Bump this pin together with the go.mod floor.
   attest-reproducibility:
     name: attest on Go ${{ matrix.go-version }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        go-version: ["1.26.x", "1.27.x"]
+        go-version: ["1.26.10", "1.27.x"]
     steps:
       - uses: actions/checkout@v7.0.1
 
