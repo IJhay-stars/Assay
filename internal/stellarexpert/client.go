@@ -134,6 +134,9 @@ func (c *Client) BlockedDomain(ctx context.Context, domain string) (*BlockedDoma
 	if err != nil || !found {
 		return nil, err
 	}
+	if b.Domain == "" {
+		return nil, nil
+	}
 	return &b, nil
 }
 

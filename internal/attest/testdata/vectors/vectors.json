@@ -1,0 +1,7 @@
+{
+  "aqua-mainnet-onchain": {
+    "expected_digest": "688453bd22e9b694b9c70659d37526bdae18944645542642008e9d961461a4a9",
+    "transaction": "1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f",
+    "deployment_asset": "AQUA"
+  }
+}

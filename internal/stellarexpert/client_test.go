@@ -1,9 +1,13 @@
 package stellarexpert_test
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/use-assay/assay/internal/stellarexpert"
@@ -117,4 +121,107 @@ func TestBlockedDomainDecodes(t *testing.T) {
 	if b == nil || b.Domain != "darkpool.digital" || b.Blocked {
 		t.Fatalf("blocklist answer decoded wrongly: %+v", b)
 	}
+}
+
+func TestEmptyBlockedDomainResponseIsNotListed(t *testing.T) {
+	b, err := serve(t, http.StatusOK, `{}`).
+		BlockedDomain(context.Background(), "unknown.example")
+	if err != nil {
+		t.Fatalf("an empty response is a normal answer, not an error: %v", err)
+	}
+	if b != nil {
+		t.Fatalf("empty response reported as a blocklist result: %+v", b)
+	}
+}
+
+type responseClass uint8
+
+const (
+	responseFailed responseClass = iota
+	responseNotListed
+	responseListed
+)
+
+func classifyResponse(found bool, err error) responseClass {
+	if err != nil {
+		return responseFailed
+	}
+	if !found {
+		return responseNotListed
+	}
+	return responseListed
+}
+
+func fuzzClient(status uint16, body []byte) *stellarexpert.Client {
+	c := stellarexpert.New("https://example.test")
+	c.HTTP = &http.Client{Transport: roundTripperFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: int(status),
+			Body:       io.NopCloser(bytes.NewReader(body)),
+			Header:     make(http.Header),
+			Request:    req,
+		}, nil
+	})}
+	return c
+}
+
+func assertResponseClass(t *testing.T, class responseClass, err error) {
+	t.Helper()
+	switch class {
+	case responseListed:
+		if err != nil {
+			t.Fatalf("listed response also returned an error: %v", err)
+		}
+	case responseNotListed:
+		if err != nil {
+			t.Fatalf("not-listed response also returned an error: %v", err)
+		}
+	case responseFailed:
+		if err == nil {
+			t.Fatal("failed response did not return an error")
+		}
+	default:
+		t.Fatalf("response has unrecognized classification %d", class)
+	}
+}
+
+func FuzzDirectoryClassification(f *testing.F) {
+	directoryFixture, err := os.ReadFile(filepath.Join("..", "mechanics", "testdata", "aqua-clear-verified", "directory.json"))
+	if err != nil {
+		f.Fatalf("read directory fixture: %v", err)
+	}
+	f.Add(uint16(http.StatusOK), directoryFixture)
+	f.Add(uint16(http.StatusOK), []byte(bodyUnlisted))
+	f.Add(uint16(http.StatusOK), []byte("{"))
+	f.Add(uint16(http.StatusNotFound), []byte("{}"))
+
+	f.Fuzz(func(t *testing.T, status uint16, body []byte) {
+		entry, err := fuzzClient(status, body).Directory(context.Background(), address)
+		class := classifyResponse(entry != nil, err)
+		assertResponseClass(t, class, err)
+		if class == responseListed && entry.Address == "" {
+			t.Fatal("listed response has no address")
+		}
+	})
+}
+
+func FuzzBlockedDomainClassification(f *testing.F) {
+	blockedFixture, err := os.ReadFile(filepath.Join("..", "mechanics", "testdata", "aqua-clear-verified", "blocked.json"))
+	if err != nil {
+		f.Fatalf("read blocked-domain fixture: %v", err)
+	}
+	f.Add(uint16(http.StatusOK), blockedFixture)
+	f.Add(uint16(http.StatusOK), []byte(`{"domain":"aqua.network","blocked":false}`))
+	f.Add(uint16(http.StatusOK), []byte(`{}`))
+	f.Add(uint16(http.StatusOK), []byte("{"))
+	f.Add(uint16(http.StatusNotFound), []byte("{}"))
+
+	f.Fuzz(func(t *testing.T, status uint16, body []byte) {
+		result, err := fuzzClient(status, body).BlockedDomain(context.Background(), "aqua.network")
+		class := classifyResponse(result != nil, err)
+		assertResponseClass(t, class, err)
+		if class == responseListed && result.Domain == "" {
+			t.Fatal("listed response has no domain")
+		}
+	})
 }
