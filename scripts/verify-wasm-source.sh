@@ -11,8 +11,10 @@
 # recorded hash. It reports.
 #
 # Usage:
-#   scripts/verify-wasm-source.sh [--out-dir DIR] [--skip-build]
+#   scripts/verify-wasm-source.sh [--source-ref REV] [--out-dir DIR] [--skip-build]
 #
+#   --source-ref REV  build the contract sources and lockfile at REV while
+#                     comparing against the deployment record in this checkout.
 #   --out-dir DIR  where the built wasm is written. Defaults to a temporary
 #                  directory that is removed on exit. The repository's
 #                  assay-contracts/out/ is never written to, so a run cannot
@@ -64,10 +66,16 @@ SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd -- "$SCRIPT_DIR/.." && pwd)
 
 OUT_DIR=""
+SOURCE_REF=""
 SKIP_BUILD=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
+    --source-ref)
+      [ $# -ge 2 ] || { echo "verify-wasm-source: --source-ref needs a value" >&2; exit 2; }
+      SOURCE_REF=$2
+      shift 2
+      ;;
     --out-dir)
       [ $# -ge 2 ] || { echo "verify-wasm-source: --out-dir needs a value" >&2; exit 2; }
       OUT_DIR=$2
@@ -95,28 +103,49 @@ done
 
 cd "$REPO_ROOT" || exit 2
 
-CONTRACTS_DIR=assay-contracts
-MANIFEST="$CONTRACTS_DIR/Cargo.toml"
-DOC=docs/deployment.md
-PIN="$CONTRACTS_DIR/rust-toolchain.toml"
+SOURCE_ROOT="$REPO_ROOT"
+SOURCE_WORKTREE=""
+CONTRACTS_DIR=""
+MANIFEST=""
+DOC="$REPO_ROOT/docs/deployment.md"
+PIN=""
 # The stellar CLI version docs/deployment.md records for the deployment. A
 # different CLI runs a different wasm optimizer, so its output is not
 # comparable to the recorded hash and must not be reported as a mismatch.
 RECORDED_STELLAR=27.1.0
 
-for f in "$MANIFEST" "$DOC"; do
-  if [ ! -f "$f" ]; then
-    echo "verify-wasm-source: $f not found; run from a checkout of the repository" >&2
-    exit 2
-  fi
-done
-
 # The build is a side effect, so keep it out of the tree by default.
 TEMP_DIR=""
 cleanup() {
   [ -n "$TEMP_DIR" ] && rm -rf "$TEMP_DIR"
+    if [ -n "$SOURCE_WORKTREE" ]; then
+        git -C "$REPO_ROOT" worktree remove --force "$SOURCE_WORKTREE" >/dev/null 2>&1 ||
+            rm -rf "$SOURCE_WORKTREE"
+    fi
 }
 trap cleanup EXIT
+
+if [ -n "$SOURCE_REF" ]; then
+    SOURCE_WORKTREE=$(mktemp -d)
+    rmdir "$SOURCE_WORKTREE"
+    if ! git -C "$REPO_ROOT" worktree add --detach "$SOURCE_WORKTREE" "$SOURCE_REF" >/dev/null; then
+        echo "verify-wasm-source: could not check out source ref: $SOURCE_REF" >&2
+        exit 2
+    fi
+    SOURCE_ROOT=$SOURCE_WORKTREE
+fi
+
+CONTRACTS_DIR="$SOURCE_ROOT/assay-contracts"
+MANIFEST="$CONTRACTS_DIR/Cargo.toml"
+PIN="$CONTRACTS_DIR/rust-toolchain.toml"
+cd "$SOURCE_ROOT" || exit 2
+
+for f in "$MANIFEST" "$DOC"; do
+    if [ ! -f "$f" ]; then
+        echo "verify-wasm-source: $f not found; run from a checkout of the repository" >&2
+        exit 2
+    fi
+done
 
 if [ -z "$OUT_DIR" ]; then
   TEMP_DIR=$(mktemp -d)

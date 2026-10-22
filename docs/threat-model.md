@@ -61,7 +61,7 @@ why the read is fail-closed.
 | Actor | What they control | What they can do to Assay |
 | --- | --- | --- |
 | **Asset issuer** | The authorization flags on their own account, their `home_domain`, the `stellar.toml` at that domain | Change the facts an attestation describes after it is written; publish a `home_domain` pointing anywhere; put hostile strings in `stellar.toml` and directory fields |
-| **Attester key holder** | The admin key, and therefore every write | Attest anything for any asset, overwrite, revoke, or stop writing. A compromise is indistinguishable from honest use on-chain |
+| **Attester key holder** | The admin key, and therefore every write | Attest anything for any asset, overwrite, revoke, stop writing, or transfer the admin role via `transfer_admin`. A compromise is indistinguishable from honest use on-chain |
 | **StellarExpert** (and the SEP-0037 directory) | The curated directory entries and the blocked-domain list | Escalate an asset to `critical`; withdraw a listing that previously escalated one; go dark |
 | **Domain operator** | Whatever the issuer's `home_domain` resolves to — **including one an attacker controls** | Serve a hostile or oversized `stellar.toml`; stall a fetch; lie about which asset it issues |
 | **Consuming contract** (the gate) | Its own call: which SAC address, which threshold or mask, which `max_age_secs` | Read the wrong asset, pass the wrong policy, or mishandle `None` |
@@ -313,6 +313,33 @@ its original `attested_at`. So archival is not an expiry control and must not be
 used as one; `revoke` is how an attestation is taken back. The behaviour is
 pinned by `read_after_archival_returns_original_attestation` and recorded in
 [deployment.md](deployment.md#entry-lifetime).
+
+#### 14. Permanent takeover via the pending-admin window (`transfer_admin`)
+
+**Verdict: accepted risk; mitigated by rotation procedures and visibility.**
+
+On any instance built from source with two-step admin transfer, an attacker who
+compromises the current admin key can invoke `transfer_admin(attacker_address)`
+and immediately call `accept_admin()` as the attacker to seize the admin role
+permanently before the operator discovers the compromise.
+
+Unlike attack class 1 (where a key compromise causes false attestations), admin
+takeover causes a permanent loss of contract control:
+- The legitimate operator's key is stripped of write authority (`attest`, `revoke`,
+  and `transfer_admin` all fail with unauthorized caller errors).
+- The attacker becomes the sole authorized attester and cannot be removed through
+  contract calls.
+- Once admin-transfer events exist, indexers and monitoring can detect
+  `transfer_admin` invocations. In the interim, consumers and drift tooling can
+  read `admin()` and `pending_admin()` ([#321](https://github.com/use-assay/Assay/issues/321))
+  to detect unauthorized changes.
+
+**Response procedure:** As documented in [attester-key.md](attester-key.md#response-to-compromise),
+the operator must never attempt to "reclaim" a compromised registry in place. The
+recovery procedure is identical to key loss: deploy a clean registry, initialize it
+to a fresh key, re-attest legitimate assets, redeploy the gate, and mark the
+compromised contract superseded in [deployment.md](deployment.md). A planned
+handshake rotation is for healthy keys, not for active compromise.
 
 ### Out of scope
 

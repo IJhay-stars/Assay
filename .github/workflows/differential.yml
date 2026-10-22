@@ -1,0 +1,106 @@
+name: Differential
+
+# Weekly independent re-derivation of the issuer flags for every attested
+# asset (issue #302). This is the scheduled counterpart to
+# `assay verify -differential`: it compares Horizon's reading with Soroban
+# RPC's, through different protocols, servers and encodings.
+#
+# The rule is the one docs/differential.md states: agreement is the only pass,
+# disagreement is a failure, and inconclusive (one or both sides produced no
+# reading) is a warning. This job is deliberately NOT on the PR path: it
+# depends on live third-party sources, so running it per-PR would make CI
+# flaky for reasons unrelated to the change under review. See CONTRIBUTING.md
+# ("Reproducibility job") for the same decision applied to hashes.
+on:
+  schedule:
+    # Weekly, Monday 07:00 UTC — after the reproducibility run at 06:00.
+    - cron: "0 7 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  # The notification step opens/closes the workflow's tracking issue on
+  # scheduled runs, the same pattern as the reproducibility job (#277).
+  issues: write
+
+jobs:
+  differential:
+    name: Differential
+    runs-on: ubuntu-latest
+    # Ten live assets, each with a scan, a registry read and an RPC read.
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      # Pinned to the module's own version, as in ci.yml and the
+      # reproducibility workflow.
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: build assay
+        run: go build -o assay ./cmd/assay
+
+      - name: re-derive flags for every attested asset
+        id: check
+        run: |
+          set +e
+          ./scripts/differential.sh 2>&1 | tee differential.log
+          rc=${PIPESTATUS[0]}
+          set -e
+          echo "rc=$rc" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "### Differential"
+            echo
+            echo '```'
+            cat differential.log
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          # Script exit codes: 0 agreement, 1 disagreement (or a script/table
+          # error), 2 inconclusive. A disagreement is the deterministic finding
+          # this job exists to surface and fails the run. Inconclusive is a
+          # warning with a green check: it must never read as a pass (the
+          # summary says INCONCLUSIVE, not PASS) and never as a hard failure
+          # (an upstream outage is not a disagreement).
+          case "$rc" in
+            0) echo "::notice title=Differential::Every attested asset's flag readings agree." ;;
+            2) echo "::warning title=Differential::Inconclusive: one or both derivations produced no reading for at least one asset. Not a pass, not a failure; re-run when sources recover." ;;
+            *) echo "::error title=Differential::Disagreement or script error (exit $rc). Both ledger readings are in the log; investigate before choosing either."; exit 1 ;;
+          esac
+
+      # Scheduled-run visibility: a red scheduled run that nobody sees is the
+      # same silence this job exists to end, one level up. One tracking issue
+      # per workflow: opened on failure, commented on while inconclusive, closed
+      # by the next green run. Push/PR runs are unaffected because this step is
+      # schedule-only.
+      - name: notify on scheduled failure
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "${{ job.status }}" = "failure" ]; then
+            outcome=failure
+          elif [ "${{ steps.check.outputs.rc }}" = "2" ]; then
+            outcome=inconclusive
+          else
+            outcome=success
+          fi
+
+          step_args=()
+          if [ "${{ steps.check.outcome }}" = "failure" ]; then
+            step_args=(--step "re-derive flags for every attested asset")
+          fi
+
+          summary_args=()
+          if [ -f differential.log ]; then
+            summary_args=(--summary-file differential.log)
+          fi
+
+          ./scripts/notify-scheduled-failure.sh \
+            --workflow "${{ github.workflow }}" \
+            --outcome "$outcome" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            "${step_args[@]}" "${summary_args[@]}"

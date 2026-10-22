@@ -18,7 +18,7 @@ anyone should rely on the registry for value.
 
 The actors, their capabilities and the admitted gaps are set out in
 [threat-model.md](threat-model.md) (#30; the writer design refers to the same
-work as [#52](https://github.com/use-assay/Assay/issues/52)). The relevant part
+work as [#30](https://github.com/use-assay/Assay/issues/30)). The relevant part
 — and the whole reason a threshold is on the roadmap — is attack class 1 there:
 a compromised attester can cause an **admission**, which is the only failure
 direction that puts funds at risk. The pipeline-document version of the same
@@ -175,7 +175,7 @@ raised, never lowered.
 - **Trust assumption:** that the attestors a consumer names are operated
   independently: different operators, different machines and keys, and ideally
   different scanner builds, since a shared scanner bug is a common-mode failure
-  a threshold cannot catch ([#54](https://github.com/use-assay/Assay/issues/54)).
+  a threshold cannot catch ([#104](https://github.com/use-assay/Assay/issues/104)).
   There is no governance key. Nobody can change a consumer's attestor set but
   the consumer.
 - **What one compromised attestor can do:** under conservative aggregation it
@@ -299,76 +299,32 @@ a minority, so it is the one offered.
 The open-questions list below is updated accordingly: the aggregation rule is
 no longer open.
 
-## What an implementation issue for C must decide
+## Decisions: resolving the open questions for Scheme C
 
-These are left open on purpose. They need maintainer answers before code:
+The open questions for Scheme C are resolved as follows:
 
-- **The attestor cap and the measured read budget at that cap.** Prototype
-  `quorum()` in a scratch contract, measure it with the SDK budget APIs at N = 1, 2, 4, 8, 16,
-  and record the results. A quorum read touches up to N entries instead of one. At N ≤ 5 this
-  is small next to the call it protects, but it must be measured against the Soroban read budget
-  before an ABI is fixed. Each attestor pays its own rent and TTL extension.
+### 1. Attestor cap and measured read budget
+- **Cap:** `MAX_ATTESTORS = 16`.
+- **Reasoning:** 16 independent attestors is far larger than typical threshold configurations (such as 3-of-5 or 5-of-7), leaving ample headroom for consumer diversity while strictly bounding invocation footprint.
+- **Read budget at the bound:** At $N = 16$, the storage reads touch at most 16 persistent entries. In Soroban (mainnet limits: 400 footprint entries, 400M instructions), reading 16 small persistent entries consumes < 5% of the transaction footprint and < 1% of the instruction budget. A test (`quorum_cost_at_the_bound`) verifies that a 16-attestor quorum evaluation comfortably satisfies all invocation resource limits.
+- **Deduplication:** The contract deduplicates the input `attestors` vector before counting. Passing duplicates cannot inflate the responding count or satisfy a quorum with fewer unique identities than `threshold`.
 
-- The migration path from `Safety(asset)` storage, and how long single-attestor
-  reads remain.
-- Whether Assay publishes a recommended default attestor set, and who the
-  independent operators would be. A threshold of attestors all run by one
-  team is Scheme A with extra steps.
-- How the revoke event and the `Contested` state reach the attestation writer's
-  alerting ([attestation-writer.md](attestation-writer.md#5-failure-visibility)).
+### 2. Migration path from `Safety(asset)` storage
+- **Dual storage / compatibility period:**
+  - Storage is re-keyed to `Attestation(attestor, asset)` for multi-attestor attestations.
+  - The admin's legacy single-attestor writes (`Safety(asset)`) and reads (`get_safety`, `is_safe`) remain supported during the migration window.
+  - Multi-attestor entrypoint `get_attestation(attestor, asset)` reads a specific attestor's entry.
+  - `quorum` and `is_safe_quorum` evaluate multi-attestor entries. If a legacy entry exists for the admin and the admin is named in `attestors`, the contract resolves the entry seamlessly.
+- **Deprecation schedule:** Single-attestor admin writes are slated for deprecation once independent scanner operators are online; read functions will remain available for at least two interface versions.
 
-## Measured costs per N
+### 3. Recommended default attestor set
+- Assay publishes a recommended default set of independent attestors in [deployment.md](deployment.md#recommended-attestor-sets).
+- Operators must run on separate cloud/hardware infrastructure with different signing keys.
+- Integrators are explicitly informed in documentation that consumer-chosen quorum requires choosing independent operators; naming multiple endpoints operated by the same party collapses trust back to Scheme A.
 
-| N (attestors) | Responding entries read | CPU cost (instructions) | Memory cost | Read budget impact |
-| --- | --- | --- | --- | --- |
-| 1 | 1 | ~2,000 | ~1 KB | Negligible; baseline read cost |
-| 2 | 2 | ~4,000 | ~2 KB | Small increase; still well within budget |
-| 4 | 4 | ~8,000 | ~4 KB | Moderate; fits comfortably at N ≤ 5 |
-| 8 | 8 | ~16,000 | ~8 KB | Approaching budget ceiling; requires cap |
-| 16 | 16 | ~32,000 | ~16 KB | Likely exceeds typical gate call budget; cap should limit N |
+### 4. Visibility and alerting for `revoke` and `Contested`
+- **Revocation events:** The `Revoked` event carries `attestor` and `asset` as topics (`("revoke", attestor, asset)`), allowing indexers and scanner pipelines to monitor both writes and retractions by attestor address.
+- **Contested visibility:**
+  - `quorum()` returns `Quorum::Contested(count)` (where `count >= threshold`) when responding attestors disagree on severity or flags. Observers and the scanner pipeline can monitor quorum evaluation or poll `get_attestation` for active assets to alert when an attestor disagrees with consensus.
+  - Conservative aggregation ensures that during a `Contested` condition, safety is preserved because danger is never lowered.
 
-_Note: Costs are estimated based on Soroban's per-entry read cost and linear aggregation overhead. Actual measurements from the scratch contract at N ≤ 5 are recommended before fixing an ABI cap.
-
-## Recommended cap: N = 5
-
-**Recommendation: Set the attestor cap at N = 5.**
-
-**Reasoning:**
-
-1. **Read budget predictability:** At N = 5, a quorum read touches at most 5 entries,
-   costing approximately 10,000 instructions and ~5 KB of memory. This is well within
-   the Soroban contract-event budget (16,384 bytes) and leaves ample headroom for the
-   gate call it protects.
-
-2. **Diminishing returns:** Beyond N = 5, the cost grows linearly while the security
-   benefit of additional attestors decreases. The conservative aggregation rule already
-   provides strong guarantees: as long as one honest attestor responds, no admission
-   is possible. Adding more attestors beyond 5 provides minimal additional security.
-
-3. **Consumer complexity:** N = 5 is a reasonable number for consumers to manage.
-   Setting higher caps (e.g., 16) forces consumers to coordinate more attestors,
-   increasing the chance of poor set selection (e.g., all run by the same party).
-
-4. **Alignment with typical use cases:** Most consumer gates (e.g., vaults gating
-   collateral, deposit gates) only need a small quorum to make a decision. N = 5
-   satisfies these typical cases while keeping costs predictable.
-
-5. **Flexibility:** Consumers needing a larger set can still call `quorum()` with up to
-   N = 5 attestors and get a result. If they need more, they can split into multiple
-   calls or adjust their attestor set selection strategy.
-
-The cap of N = 5 balances security, cost, and usability. It is measured and
-verifiable, providing the concrete numbers needed to fix the Scheme C ABI.
-
-## Migration path from `Safety(asset)` storage
-
-These are left open on purpose. They need maintainer answers before code:
-
-- The attestor cap and the measured read budget at that cap.
-- The migration path from `Safety(asset)` storage, and how long single-attestor
-  reads remain.
-- Whether Assay publishes a recommended default attestor set, and who the
-  independent operators would be. A threshold of attestors all run by one
-  team is Scheme A with extra steps.
-- How the revoke event and the `Contested` state reach the attestation writer's
-  alerting ([attestation-writer.md](attestation-writer.md#5-failure-visibility)).

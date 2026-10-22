@@ -13,6 +13,8 @@ import (
 
 	"github.com/use-assay/assay/internal/attest"
 	"github.com/use-assay/assay/internal/bundle"
+	"github.com/use-assay/assay/internal/differential"
+	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/scan"
 )
@@ -70,9 +72,10 @@ type OnChainSafety struct {
 // stub the chain; the production implementation is stellarRegistryReader.
 type registryReader func(asset mechanics.Asset) (*OnChainSafety, error)
 
-// scanFunc performs the live re-scan. Stubbed in tests, scan.New().Scan in
-// production.
-type scanFunc func(ctx context.Context, asset mechanics.Asset) (*mechanics.Report, error)
+// verifyScanFunc is the re-scan used by verify. It also returns the Subject the
+// report was built from, because the optional differential check must compare
+// the independent reading against exactly the flags the report used.
+type verifyScanFunc func(ctx context.Context, asset mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error)
 
 // VerifyResult is the full verdict, for both the human line and -json.
 type VerifyResult struct {
@@ -83,7 +86,11 @@ type VerifyResult struct {
 	MaxAge  int64          `json:"max_age_secs,omitempty"`
 	Local   *LocalSide     `json:"local,omitempty"`
 	Chain   *OnChainSafety `json:"chain,omitempty"`
-	Detail  string         `json:"detail,omitempty"`
+	// Differential is present only when -differential was requested. Its
+	// State is one of the four states in docs/differential.md; a disagreement
+	// makes the command fail even when the hash comparison itself agrees.
+	Differential *differential.Result `json:"differential,omitempty"`
+	Detail       string               `json:"detail,omitempty"`
 }
 
 // LocalSide is the freshly scanned side of the comparison.
@@ -108,12 +115,21 @@ type LocalSide struct {
 // agree, stale, mismatch, absent, unverifiable — is a VerifyResult, not an
 // error, because "the attestation disagrees" is a successful verification of
 // a bad attestation and a script must be able to distinguish the exit codes.
-func verifyAsset(ctx context.Context, asset mechanics.Asset, maxAge int64, now time.Time, doScan scanFunc, read registryReader) (*VerifyResult, error) {
+func verifyAsset(ctx context.Context, asset mechanics.Asset, maxAge int64, now time.Time, doScan verifyScanFunc, read registryReader, differentialRPC string) (*VerifyResult, error) {
 	res := &VerifyResult{Asset: asset.String()}
 
-	report, err := doScan(ctx, asset)
+	report, subject, err := doScan(ctx, asset)
 	if err != nil {
 		return nil, fmt.Errorf("scan: %w", err)
+	}
+
+	// The differential read is independent of the hash comparison: it compares
+	// the scanner's flag reading with a second ledger route, so an attestation
+	// mismatch does not prevent it from running and an independent failure does
+	// not become agreement. An empty URL means the caller did not opt in.
+	if differentialRPC != "" {
+		d := differentialResult(ctx, asset, subject, differentialRPC)
+		res.Differential = &d
 	}
 
 	if report.Undetermined {
@@ -267,6 +283,112 @@ func bytesOr(b []byte) []byte {
 	return b
 }
 
+// differentialResult re-reads the issuer's flags through Soroban RPC and
+// compares them with the two copies the scan already fetched. Those copies are
+// reduced with the same reconciliation rule the capability check uses
+// (SubjectProvider), so the comparison is against what the report believed,
+// not against one arbitrary copy. A Subject that never read flags yields an
+// inconclusive state, never zero flags.
+func differentialResult(ctx context.Context, asset mechanics.Asset, subject *mechanics.Subject, rpcURL string) differential.Result {
+	var statFlags, accountFlags *horizon.Flags
+	if subject != nil {
+		if subject.Stat != nil {
+			f := subject.Stat.Flags
+			statFlags = &f
+		}
+		if subject.Issuer != nil {
+			f := subject.Issuer.Flags
+			accountFlags = &f
+		}
+	}
+	return differential.Compare(ctx, asset.Code, asset.Issuer,
+		differential.NewSubjectProvider(statFlags, accountFlags),
+		differential.New(rpcURL))
+}
+
+// writeFlags prints a flag reading in a stable order, so agreement and
+// disagreement are auditable from the text output without decoding JSON.
+func writeFlags(w io.Writer, label string, f *horizon.Flags) {
+	_, _ = fmt.Fprintf(w, "  %s: auth_required=%t auth_revocable=%t auth_immutable=%t auth_clawback_enabled=%t\n",
+		label, f.AuthRequired, f.AuthRevocable, f.AuthImmutable, f.AuthClawbackEnabled)
+}
+
+func writeDifferential(w io.Writer, d *differential.Result) {
+	_, _ = fmt.Fprintf(w, "differential: %s\n", d.State)
+	if d.Reason != "" {
+		_, _ = fmt.Fprintf(w, "  %s\n", d.Reason)
+	}
+	if d.Primary != nil {
+		writeFlags(w, "primary flags", d.Primary)
+	}
+	if d.PrimaryErr != "" {
+		_, _ = fmt.Fprintf(w, "  primary error: %s\n", d.PrimaryErr)
+	}
+	if d.Secondary != nil {
+		writeFlags(w, "soroban rpc flags", d.Secondary)
+	}
+	if d.SecondaryErr != "" {
+		_, _ = fmt.Fprintf(w, "  soroban rpc error: %s\n", d.SecondaryErr)
+	}
+}
+
+// writeVerifyResult renders one verdict as either JSON or text. Keeping it out
+// of runVerify makes every state renderable in a test, including the four
+// differential states.
+func writeVerifyResult(w io.Writer, res *VerifyResult, asJSON bool) error {
+	if asJSON {
+		enc := json.NewEncoder(w)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(res); err != nil {
+			return fmt.Errorf("verify: write: %w", err)
+		}
+		return nil
+	}
+
+	_, _ = fmt.Fprintf(w, "%s: %s\n", strings.ToUpper(string(res.Outcome)), res.Asset)
+	if res.Detail != "" {
+		_, _ = fmt.Fprintln(w, res.Detail)
+	}
+	if len(res.Fields) > 0 {
+		_, _ = fmt.Fprintln(w, "differing fields:", strings.Join(res.Fields, ", "))
+		if res.Local != nil {
+			_, _ = fmt.Fprintf(w, "local: severity=%d flags=%d evidence_hash=%s\n",
+				res.Local.Severity, res.Local.Flags, res.Local.EvidenceHash)
+		}
+		if res.Chain != nil {
+			_, _ = fmt.Fprintf(w, "chain: severity=%d flags=%d evidence_hash=%s attested_at=%d\n",
+				res.Chain.Severity, res.Chain.Flags, res.Chain.EvidenceHash, res.Chain.AttestedAt)
+		}
+	}
+	if res.Differential != nil {
+		writeDifferential(w, res.Differential)
+	}
+	return nil
+}
+
+// verifyExitCode maps a completed verification to the process status. A
+// differential disagreement is a mismatch even when the on-chain hash agreed:
+// two ledgers reading the issuer's flags differently is exactly the fault this
+// opt-in check exists to surface, and it must never exit 0.
+func verifyExitCode(res *VerifyResult) int {
+	if res.Differential != nil && res.Differential.State == differential.StateDisagreement {
+		return exitMismatch
+	}
+	switch res.Outcome {
+	case outcomeAgree:
+		return exitSuccess
+	case outcomeStale:
+		return exitStale
+	case outcomeMismatch:
+		return exitMismatch
+	case outcomeAbsent:
+		return exitAbsent
+	case outcomeUnverifiable:
+		return exitUnverifiable
+	}
+	return exitGeneric
+}
+
 // verifyBundle checks an offline bundle: it recomputes the digest from the
 // archived preimage and verifies every file the manifest binds. It never reads
 // the chain and never scans. The exit code distinguishes a valid bundle (0)
@@ -311,6 +433,10 @@ func runVerify(args []string) error {
 	asJSON := fs.Bool("json", false, "print the verdict as JSON for scripting")
 	bundlePath := fs.String("bundle", "",
 		"verify an offline attestation bundle instead of a live scan (cannot be combined with -max-age)")
+	differentialEnabled := fs.Bool("differential", false,
+		"also re-read the issuer's flags through Soroban RPC; disagreement fails verification")
+	rpcURL := fs.String("rpc", differential.DefaultURL,
+		"Soroban RPC URL used by -differential")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("verify: %w", err)
 	}
@@ -320,6 +446,9 @@ func runVerify(args []string) error {
 		}
 		if *maxAge != 0 {
 			return fmt.Errorf("verify -bundle cannot check -max-age: a bundle records the report, not when it was attested")
+		}
+		if *differentialEnabled {
+			return fmt.Errorf("verify -bundle cannot run -differential: a bundle has no live scan to re-derive flags from")
 		}
 		code, err := verifyBundle(*bundlePath, *asJSON, os.Stdout)
 		if err != nil {
@@ -346,50 +475,23 @@ func runVerify(args []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
+	differentialRPC := ""
+	if *differentialEnabled {
+		differentialRPC = *rpcURL
+	}
+	scanner := scan.New()
 	res, verdict := verifyAsset(ctx, asset, *maxAge, time.Now(),
-		func(ctx context.Context, a mechanics.Asset) (*mechanics.Report, error) {
-			return scan.New().Scan(ctx, a)
-		},
-		stellarRegistryReader)
+		scanner.ScanWithSubject,
+		stellarRegistryReader, differentialRPC)
 	if verdict != nil {
 		return verdict
 	}
 
-	if *asJSON {
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
-		if err := enc.Encode(res); err != nil {
-			return fmt.Errorf("verify: write: %w", err)
-		}
-	} else {
-		fmt.Printf("%s: %s\n", strings.ToUpper(string(res.Outcome)), res.Asset)
-		if res.Detail != "" {
-			fmt.Println(res.Detail)
-		}
-		if len(res.Fields) > 0 {
-			fmt.Println("differing fields:", strings.Join(res.Fields, ", "))
-			if res.Local != nil {
-				fmt.Printf("local: severity=%d flags=%d evidence_hash=%s\n",
-					res.Local.Severity, res.Local.Flags, res.Local.EvidenceHash)
-			}
-			if res.Chain != nil {
-				fmt.Printf("chain: severity=%d flags=%d evidence_hash=%s attested_at=%d\n",
-					res.Chain.Severity, res.Chain.Flags, res.Chain.EvidenceHash, res.Chain.AttestedAt)
-			}
-		}
+	if err := writeVerifyResult(os.Stdout, res, *asJSON); err != nil {
+		return err
 	}
-
-	switch res.Outcome {
-	case outcomeAgree:
-		return nil
-	case outcomeStale:
-		os.Exit(exitStale)
-	case outcomeMismatch:
-		os.Exit(exitMismatch)
-	case outcomeAbsent:
-		os.Exit(exitAbsent)
-	case outcomeUnverifiable:
-		os.Exit(exitUnverifiable)
+	if code := verifyExitCode(res); code != exitSuccess {
+		os.Exit(code)
 	}
 	return nil
 }

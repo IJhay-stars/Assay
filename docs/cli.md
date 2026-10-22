@@ -9,8 +9,9 @@ scripts can ask for a tab-separated `-raw` form where one exists. `verify` and
 usage:
   assay scan CODE-ISSUER          classify one asset and print the report as JSON
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
-  assay verify [-json] [-max-age SECS] CODE-ISSUER
+  assay verify [-json] [-max-age SECS] [-differential [-rpc URL]] CODE-ISSUER
                                   compare a live scan with the on-chain attestation
+                                  (with -differential, also re-read issuer flags via RPC)
   assay verify -bundle IN [-json]
                                   verify an offline bundle without a network
   assay diff [-json] A.json B.json
@@ -19,8 +20,32 @@ usage:
                                   print the asset's observation history
   assay registry-history [-rpc URL] [-contract C...] [-json] ASSET
                                   print the registry's attest/revoke events for an asset
+                                  (CODE-ISSUER or SAC address), bounded by RPC event retention
   assay serve [-addr] [-history PATH]
                                   serve the HTTP API and UI
+
+Commands that scan also accept:
+  -cache-directory-ttl D   reuse a curated directory answer for D (0 disables)
+  -cache-blocklist-ttl D   reuse a blocklist answer for D (0 disables)
+  -no-cache                re-fetch curated sources on every scan
+  -asset-lists URL[,URL...]
+                           SEP-0042 Stellar Asset Lists to consume
+                           (repeatable). No list is used by default.
+
+The scan command additionally accepts:
+  -record DIR             save every upstream response into DIR with a
+                          manifest, for later -replay
+  -replay DIR             serve every upstream response from a recording;
+                          an unrecorded request fails loudly instead of
+                          reaching the network
+
+The attestation command additionally accepts:
+  -preimage-version V     render the preimage under encoding V (v1, v2, v3,
+                          v4 or assay-evidence-vN) instead of the one the
+                          report binds, so an already-recorded hash can be
+                          reproduced from a fresh scan
+  -bundle OUT             also write an offline verification bundle (raw
+                          source bytes, report, preimage, digest) to OUT
 ```
 
 Commands that scan also accept:
@@ -118,6 +143,8 @@ agree. It replaces two commands and a human comparing hex by eye.
 ./assay verify CODE-ISSUER
 ./assay verify -json CODE-ISSUER
 ./assay verify -max-age 3600 CODE-ISSUER   # also treat an old attestation as stale
+./assay verify -differential CODE-ISSUER   # also re-read issuer flags via Soroban RPC
+./assay verify -differential -rpc https://rpc.example CODE-ISSUER
 ```
 
 Flags:
@@ -125,6 +152,11 @@ Flags:
 - `-max-age SECS` — treat an attestation older than this many seconds as stale.
   `0` (the default) disables the age check; freshness is the caller's policy.
 - `-json` — print the full verdict as JSON for scripting.
+- `-differential` — opt in to a second ledger read: re-derive the issuer's
+  authorization flags through Soroban RPC and compare them with the flags the
+  scan used. It does not change the hash comparison; it runs alongside it.
+- `-rpc URL` — Soroban RPC endpoint for `-differential` (default: SDF testnet).
+  A pubnet run must name an endpoint the caller trusts.
 
 The contract and network come from `ASSAY_CONTRACT_ID` and `ASSAY_NETWORK`,
 with the same defaults as the Makefile. The verdict classes are deliberately
@@ -141,6 +173,22 @@ distinct, and each has its own exit code:
 An undetermined scan never reports agreement. A mismatch names the differing
 fields and prints both sides.
 
+With `-differential`, the verdict also carries a `differential` object in JSON
+and a `differential:` section in text. Its state is one of the four defined in
+[differential.md](differential.md):
+
+| Differential state | Meaning | Verification exit |
+| --- | --- | --- |
+| `agreement` | both ledger routes read the same flags | unchanged (0 when the hash outcome is `agree`) |
+| `disagreement` | both answered with different flags | `1`, even when the hash comparison agreed |
+| `inconclusive_one_side` | exactly one route produced a reading | unchanged; not agreement, but not a disagreement |
+| `inconclusive_both_sides` | neither route produced a reading | unchanged; nothing was verified |
+
+A disagreement is the one differential state that fails verification: two
+independent readings of the same fact disagreeing needs human investigation,
+and neither side is chosen automatically. An inconclusive differential read is
+reported as such and never rendered as agreement.
+
 ### Offline bundles
 
 `-bundle IN` verifies an archive written by `assay attestation -bundle`. It
@@ -155,8 +203,10 @@ preimage and checks every file the manifest binds.
 A valid bundle exits 0, a tampered or incomplete one exits 1, and an archive
 that cannot be opened exits 4 — a broken file is not a mismatch. `-max-age`
 cannot be combined with `-bundle`, because the archive records the report but
-not when the attestation was written. The format, the files it contains and
-the redistribution terms are in [offline-bundle.md](offline-bundle.md).
+not when the attestation was written. `-differential` is likewise refused with
+`-bundle`: an archive has no live scan to re-read flags from. The format, the
+files it contains and the redistribution terms are in
+[offline-bundle.md](offline-bundle.md).
 
 ## assay diff
 

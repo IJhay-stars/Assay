@@ -76,6 +76,7 @@ carries an explicit, evaluated position on legitimate clawback use. See
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
 | [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
 | [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
+| [docs/temporal.md](docs/temporal.md) | What an attestation says at one observation, and how capability changes affect past exposure |
 | [docs/asset-lists.md](docs/asset-lists.md) | Consuming SEP-0042 Stellar Asset Lists as a second curation source, and why listing is never a safety signal |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 | [docs/pipeline.md](docs/pipeline.md) | The full ledger-fact to on-chain-verdict path for a single asset |
@@ -126,4 +127,3 @@ admission.
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
-- [Temporal Trust Model](docs/temporal.md)

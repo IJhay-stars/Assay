@@ -13,7 +13,8 @@ pubnet, and nothing here should be read as a claim that it is ready to be.
 | Wasm hash | `c4105b91b3ceae95b5a225c55bc6981b3dcf71d07fdd0ee5c79a21d25edd301b` |
 | Source | [`contracts/safety-registry`](../assay-contracts/contracts/safety-registry) |
 | Admin / attester | `GALIEUOBDLTFJHTVH5E3MT2BMDTQ3PKMX2U6BRXVKLEB7ARFORFNNMVY` |
-| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5, `rustc` 1.98.1 (pinned) |
+| Source snapshot | [`eec17a7`](https://github.com/use-assay/Assay/commit/eec17a7dfcdfab80a1cf864eb6fc3dcd13b0a27f) |
+| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5; Rust compiler not recorded |
 
 The contracts' Rust toolchain is pinned to `rustc` 1.98.1 in
 [`assay-contracts/rust-toolchain.toml`](../assay-contracts/rust-toolchain.toml),
@@ -29,6 +30,8 @@ deployed alongside it, wired to the registry above:
 | **Example gate contract** | `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` |
 | Wasm hash | `ca40172ec8ebc259e7e21429748b2bd7cafe467fa3005d849d81d16938e8987c` |
 | Redeployed | 2026-09-16 — severity ceiling, [#26](https://github.com/use-assay/Assay/issues/26) |
+| Source snapshot | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) |
+| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5; Rust compiler not pinned in this source commit |
 | Source | [`contracts/example-gate`](../assay-contracts/contracts/example-gate) |
 
 ### Deployment transactions
@@ -60,11 +63,11 @@ Three instances exist on testnet and none can be removed. Only one should be
 used. Checked on 2026-09-17 by fetching each contract's wasm and hashing it, and
 by reading the constructor argument from each deploy transaction or querying `policy()`:
 
-| Instance | Status | Wasm | Registry at construction | Configured Policy (`policy()`) |
-| --- | --- | --- | --- | --- |
-| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` |
-| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` |
-| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` | `max_severity: 4`, `max_age: 86400s`, `refused_mechanics: 6` |
+| Instance | Status | Wasm | Registry at construction | Configured Policy (`policy()`) | Source snapshot | `soroban-sdk` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) | 27.0.5 |
+| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) | 27.0.5 |
+| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` | `max_severity: 4`, `max_age: 86400s`, `refused_mechanics: 6` | [`c505904`](https://github.com/use-assay/Assay/commit/c50590468e5f5deb83566d4a32d2a57bd895518b) | 27.0.5 |
 
 The configured policy can be verified directly on deployed gates supporting the ABI via:
 ```sh
@@ -127,6 +130,23 @@ built here `9bd4a4b6a5e71e6c201eb633218c65dfb5dc0209dac6a0d5471b0228a4200a00`.
 ```sh
 make verify-wasm          # or: scripts/verify-wasm-source.sh
 ```
+
+To compare a historical source snapshot with the hashes recorded here, pass
+its commit from this checkout:
+
+```sh
+make verify-wasm SOURCE_REF=eec17a7dfcdfab80a1cf864eb6fc3dcd13b0a27f # registry deployment snapshot
+make verify-wasm SOURCE_REF=c50590468e5f5deb83566d4a32d2a57bd895518b # original example gate
+make verify-wasm SOURCE_REF=5aa88e998a5a2f4a9d93879018d3f3534b2a757d # redeployed example gate
+```
+
+The verifier builds manifests and dependencies from that commit while reading
+the recorded hashes from this checkout. These snapshots all use
+`soroban-sdk` 27.0.5. None contains `assay-contracts/rust-toolchain.toml`, and
+the compiler used for the deployments was not recorded. The verifier therefore
+reports `unpinned` and exits 2 for those snapshots; it cannot reproduce or
+refute their hashes. The snapshot commits identify the source state associated
+with each deployment record, not a transaction-attested build commit.
 
 The script builds each contract from the committed source and compares the
 result to the hashes in this file. It builds into a temporary directory, so it

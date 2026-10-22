@@ -72,6 +72,8 @@ pub fn init(env: Env, admin: Address) -> Result<(), Error>;
 pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 pub fn accept_admin(env: Env) -> Result<(), Error>;
 pub fn cancel_admin_transfer(env: Env) -> Result<(), Error>;
+pub fn admin(env: Env) -> Option<Address>;
+pub fn pending_admin(env: Env) -> Option<Address>;
 ```
 
 The `Vec<Attestation>` argument is confirmed against the built artifact rather
@@ -323,9 +325,13 @@ is the first on-chain trace. `cancel_admin_transfer` publishes one
 handover is observable. A transfer or cancellation moves the admin role only —
 the stored attestations are untouched and `get_safety` keeps serving them.
 
-**The live testnet deployment predates all three entrypoints.**
+The current admin and pending admin can be read at any time without decoding instance storage:
+- **`admin()`** returns `Option<Address>` (`Some(Address)` after `init`, `None` before).
+- **`pending_admin()`** returns `Option<Address>` (`Some(Address)` during an active transfer handshake, `None` otherwise).
+
+**The live testnet deployment predates all five entrypoints.**
 `CBK4FBIH…` was deployed on 2026-08-15, before `transfer_admin`,
-`accept_admin`, and `cancel_admin_transfer` existed, and it has no upgrade
+`accept_admin`, `cancel_admin_transfer`, `admin`, and `pending_admin` existed, and it has no upgrade
 entrypoint to receive them. Calling any of them against the live contract fails
 as an unknown entrypoint, and rotating the live admin still means a new deployment
 and re-attestation — see

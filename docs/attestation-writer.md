@@ -39,7 +39,7 @@ stop writing.
 already assumes.** The registry's `attest` requires the admin's authorization,
 and there is no threshold mechanism to use — building one is
 [#88](https://github.com/use-assay/Assay/issues/88) and needs a stated threat
-model ([#52](https://github.com/use-assay/Assay/issues/52)) before a scheme
+model ([#30](https://github.com/use-assay/Assay/issues/30)) before a scheme
 can be chosen. This is a limitation, stated as such in
 [contract-interface.md](contract-interface.md#not-done-yet), and it caps what
 the first pipeline is *for*: it can make the testnet registry useful and
@@ -186,7 +186,8 @@ re-attesting. Three mechanisms, in increasing order of honesty:
    writes to the wrong contract ID.
 
 The runbook for these alerts is [#115](https://github.com/use-assay/Assay/issues/115);
-this design specifies what is observable, not who gets paged.
+source-specific outage response is in [source-outage.md](source-outage.md).
+This design specifies what is observable, not who gets paged.
 
 ## Dry-run mode
 
@@ -261,7 +262,7 @@ compromised it.
   control. A consumer that gates *without* verifying hashes is still fully
   exposed to a malicious writer.
 - *It does not survive a scanner downgrade*
-  ([#54](https://github.com/use-assay/Assay/issues/54)). If the attacker
+  ([#104](https://github.com/use-assay/Assay/issues/104)). If the attacker
   controls which code runs, the hash is internally consistent with whatever
   the compromised scanner concluded. Version binding
   ([#40](https://github.com/use-assay/Assay/issues/40)) and check-set binding
@@ -279,7 +280,7 @@ compromised it.
 testnet pipeline demonstrates and exercises the machinery. It does not make
 the registry trustworthy; that requires the multi-attestor work
 ([#88](https://github.com/use-assay/Assay/issues/88)) behind a signed threat
-model ([#52](https://github.com/use-assay/Assay/issues/52)). This document
+model ([#30](https://github.com/use-assay/Assay/issues/30)). This document
 asks for maintainer sign-off on exactly that scope boundary.
 
 ## Verified against live surfaces, 2026-09-25
@@ -312,7 +313,7 @@ asks for maintainer sign-off on exactly that scope boundary.
   key custody ([#150](https://github.com/use-assay/Assay/issues/150), see
   [attester-key.md](attester-key.md)),
   the re-attestation runbook
-  ([#115](https://github.com/use-assay/Assay/issues/115)).
+  ([#145](https://github.com/use-assay/Assay/issues/145)).
 - Whether `undetermined` belongs in the preimage
   ([#43](https://github.com/use-assay/Assay/issues/43)) — irrelevant here,
   because undetermined reports are refused before a preimage would be hashed

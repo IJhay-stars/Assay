@@ -190,6 +190,18 @@ def strkey_contract(digest_hex):
     return base64.b32encode(payload + crc.to_bytes(2, "little")).decode().rstrip("=")
 
 
+def strkey_account(pubkey_bytes):
+    """A 32-byte ed25519 public key rendered as a G… strkey: version byte 48 (6<<3),
+    the key, then a CRC16-XMODEM over both, little-endian."""
+    payload = bytes([48]) + pubkey_bytes
+    crc, poly = 0, 0x1021
+    for byte in payload:
+        crc ^= byte << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ poly) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return base64.b32encode(payload + crc.to_bytes(2, "little")).decode().rstrip("=")
+
+
 # ---------------------------------------------------------------------------
 # The documented state, read from the tables in place. A second copy of these
 # values inside this script could itself drift, which is the failure this
@@ -277,6 +289,8 @@ with open(DEPLOYMENT, encoding="utf-8") as handle:
                     pending, registry_tables["gate"] = "gate", {"addr": row[1]}
                 elif row[0].startswith("Wasm hash") and pending:
                     registry_tables[pending]["wasm"] = row[1]
+                elif "Admin" in row[0] and pending == "registry":
+                    registry_tables[pending]["admin"] = row[1]
 
 # The canonical gate is named in both the live-address table and the instance
 # table. One check per contract; a full hash is preferred over an abbreviation
@@ -284,7 +298,12 @@ with open(DEPLOYMENT, encoding="utf-8") as handle:
 contracts = {}
 for label, entry in registry_tables.items():
     if entry.get("addr") and CONTRACT_RE.match(entry["addr"]):
-        contracts[entry["addr"]] = {"wasm": entry.get("wasm"), "bound": None, "label": label}
+        contracts[entry["addr"]] = {
+            "wasm": entry.get("wasm"),
+            "bound": None,
+            "admin": entry.get("admin"),
+            "label": label,
+        }
 for inst in instances:
     entry = contracts.setdefault(inst["addr"],
                                  {"wasm": None, "bound": None, "label": f"instance {inst['addr'][:8]}…"})
@@ -458,8 +477,10 @@ for addr, entry in sorted(contracts.items()):
     checks.append((f"address {label}", "address", addr, instance_key))
     if entry["wasm"]:
         checks.append((f"wasm {label}", "wasm", wasm_fragment(entry["wasm"]), instance_key))
-    if entry["bound"]:
+    if entry.get("bound"):
         checks.append((f"registry-binding {label}", "bound", entry["bound"], instance_key))
+    if entry.get("admin"):
+        checks.append((f"admin {label}", "admin", entry["admin"], instance_key))
 for code, entry in sorted(assets.items()):
     checks.append((f"attestation {code}", "attestation",
                    (entry["severity"], entry["flags"], entry["evidence"], entry["preimage"]),
@@ -602,6 +623,33 @@ for key, group in keys.items():
                 report("valid", name, f"{expected}")
             else:
                 report("invalid", name, f"documented {expected}; on-chain {bound}")
+
+        elif kind == "admin":
+            # The contract admin lives in instance storage, keyed by DataKey::Admin.
+            # In XDR, DataKey::Admin is encoded as vec[ symbol("Admin") ] or symbol("Admin").
+            # The value is an ScAddress (account or contract).
+            admin = None
+            for key_scval, val_scval in value.get("storage") or []:
+                symbol = key_scval.get("symbol")
+                if symbol is None:
+                    wrapped = key_scval.get("vec") or []
+                    if len(wrapped) == 1:
+                        symbol = wrapped[0].get("symbol")
+                if symbol == "Admin":
+                    addr_info = val_scval.get("address")
+                    if addr_info:
+                        tag = addr_info[0]
+                        if tag == "account":
+                            admin = strkey_account(addr_info[1])
+                        elif tag == "contract":
+                            admin = strkey_contract(addr_info[1].hex())
+            if admin is None:
+                report("invalid", name,
+                       f"documented admin {expected}; on-chain: the contract's instance storage names no admin")
+            elif fragment_matches(admin, expected):
+                report("valid", name, f"{expected}")
+            else:
+                report("invalid", name, f"documented {expected}; on-chain {admin}")
 
         else:  # attestation
             stored = {key_scval.get("symbol"): val_scval

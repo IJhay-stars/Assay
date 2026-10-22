@@ -715,6 +715,58 @@ fn ttl_revoke_extends_instance_to_network_max() {
     assert_eq!(instance_ttl(&env, &client), max);
 }
 
+/// transfer_admin and accept_admin are writes and extend the instance TTL
+/// to the network maximum, matching the other write entrypoints.
+#[test]
+fn ttl_admin_transfer_entrypoints_extend_instance_to_network_max() {
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.init(&a);
+
+    let max = max_ttl(&env, &client);
+
+    // Advance sequence: instance TTL decays.
+    let seq = env.ledger().sequence();
+    env.ledger().set_sequence_number(seq + 10_000);
+    assert_eq!(instance_ttl(&env, &client), max - 10_000);
+
+    // transfer_admin extends instance TTL to max.
+    client
+        .mock_auths(&[MockAuth {
+            address: &a,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "transfer_admin",
+                args: (&b,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .transfer_admin(&b);
+    assert_eq!(instance_ttl(&env, &client), max);
+
+    // Advance sequence again.
+    let seq2 = env.ledger().sequence();
+    env.ledger().set_sequence_number(seq2 + 10_000);
+    assert_eq!(instance_ttl(&env, &client), max - 10_000);
+
+    // accept_admin extends instance TTL to max.
+    client
+        .mock_auths(&[MockAuth {
+            address: &b,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "accept_admin",
+                args: ().into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .accept_admin();
+    assert_eq!(instance_ttl(&env, &client), max);
+}
+
 /// Re-attesting renews the TTL: an entry that has aged is pushed back out to
 /// the maximum by the next write.
 #[test]
@@ -1375,6 +1427,57 @@ fn attestations_survive_admin_transfer_and_follow_the_new_admin() {
     assert!(client.get_safety(&other).is_some());
 }
 
+#[test]
+fn admin_and_pending_admin_getters_reflect_lifecycle() {
+    let env = Env::default();
+    let contract_id = env.register(SafetyRegistry, ());
+    let client = SafetyRegistryClient::new(&env, &contract_id);
+
+    // Before init: both return None
+    assert_eq!(client.admin(), None);
+    assert_eq!(client.pending_admin(), None);
+
+    let a = Address::generate(&env);
+    let b = Address::generate(&env);
+    client.init(&a);
+
+    // After init: admin is Some(a), pending_admin is None
+    assert_eq!(client.admin(), Some(a.clone()));
+    assert_eq!(client.pending_admin(), None);
+
+    // Transfer initiated: admin is still Some(a), pending_admin is Some(b)
+    client
+        .mock_auths(&[MockAuth {
+            address: &a,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "transfer_admin",
+                args: (&b,).into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .transfer_admin(&b);
+
+    assert_eq!(client.admin(), Some(a));
+    assert_eq!(client.pending_admin(), Some(b.clone()));
+
+    // Transfer accepted: admin is Some(b), pending_admin is cleared back to None
+    client
+        .mock_auths(&[MockAuth {
+            address: &b,
+            invoke: &MockAuthInvoke {
+                contract: &contract_id,
+                fn_name: "accept_admin",
+                args: ().into_val(&env),
+                sub_invokes: &[],
+            },
+        }])
+        .accept_admin();
+
+    assert_eq!(client.admin(), Some(b));
+    assert_eq!(client.pending_admin(), None);
+}
+
 /// Only the current admin may nominate a successor. The `MockAuth` grants the
 /// intruder authorization for this very call, so the rejection below is the
 /// contract's `require_auth` on the stored admin and not an artefact of the
@@ -1681,6 +1784,200 @@ fn get_safety_many_cost_at_the_bound() {
         r.contract_events_size_bytes, 0,
         "a read-only batch publishes no events"
     );
+    assert!(footprint <= 400, "footprint entries {footprint} exceed 400");
+    assert!(
+        r.instructions <= 400_000_000,
+        "instructions exceed 400 000 000"
+    );
+    assert!(r.mem_bytes <= 41_943_040, "memory exceeds 41 943 040");
+}
+
+// ---------------------------------------------------------------------------
+// Scheme C: Consumer-chosen quorum attestation (#329)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    // Passing the same attestor (admin) multiple times must be deduplicated to 1.
+    // If threshold is 2, a duplicated single attestor cannot satisfy it.
+    let attestors = vec![&env, admin.clone(), admin.clone(), admin.clone()];
+    let res = client.quorum(&asset, &attestors, &2, &0);
+    assert_eq!(res, Quorum::Unavailable(0));
+
+    // Threshold 1 passes with the deduplicated single attestor
+    let res1 = client.quorum(&asset, &attestors, &1, &0);
+    assert_eq!(
+        res1,
+        Quorum::Met(Safety {
+            severity: SEVERITY_CLEAR,
+            flags: 0,
+            evidence_hash: hash(&env),
+            attested_at: env.ledger().timestamp(),
+        })
+    );
+}
+
+#[test]
+fn quorum_contested_and_unavailable_are_distinguishable_on_chain() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    let att2 = Address::generate(&env);
+    let att3 = Address::generate(&env);
+
+    // Write admin's attestation
+    client.attest(&asset, &SEVERITY_CLEAR, &0, &hash(&env));
+
+    // att2 writes a different severity via multi-attestor storage
+    env.as_contract(&client.address, || {
+        env.storage().persistent().set(
+            &DataKey::Attestation(att2.clone(), asset.clone()),
+            &Safety {
+                severity: SEVERITY_HIGH,
+                flags: MECH_CLAWBACK_ENABLED,
+                evidence_hash: hash(&env),
+                attested_at: env.ledger().timestamp(),
+            },
+        );
+    });
+
+    // 1 responding out of 3, threshold 2 -> Unavailable(1)
+    let attestors_unavailable = vec![&env, admin.clone(), att3.clone()];
+    let res_unavail = client.quorum(&asset, &attestors_unavailable, &2, &0);
+    assert_eq!(res_unavail, Quorum::Unavailable(1));
+
+    // 2 responding out of 2, threshold 2, but disagree -> Contested(2)
+    let attestors_contested = vec![&env, admin.clone(), att2.clone()];
+    let res_contested = client.quorum(&asset, &attestors_contested, &2, &0);
+    assert_eq!(res_contested, Quorum::Contested(2));
+
+    // Both are enum variants and distinguishable on chain
+    assert_ne!(res_unavail, res_contested);
+}
+
+#[test]
+fn quorum_conservative_aggregation_one_honest_attestor_prevents_admission() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+    let malicious = Address::generate(&env);
+
+    // Honest attestor reports SEVERITY_HIGH and clawback
+    client.attest(&asset, &SEVERITY_HIGH, &MECH_CLAWBACK_ENABLED, &hash(&env));
+
+    // Malicious attestor claims SEVERITY_CLEAR and 0 flags
+    env.as_contract(&client.address, || {
+        env.storage().persistent().set(
+            &DataKey::Attestation(malicious.clone(), asset.clone()),
+            &Safety {
+                severity: SEVERITY_CLEAR,
+                flags: 0,
+                evidence_hash: hash(&env),
+                attested_at: env.ledger().timestamp(),
+            },
+        );
+    });
+
+    let attestors = vec![&env, admin.clone(), malicious.clone()];
+
+    // With conservative aggregation, maximum severity (HIGH) and union of flags are evaluated.
+    // A gate asking for max_severity <= MEDIUM will reject (false) because the honest attestor raised severity to HIGH.
+    assert!(!client.is_safe_quorum(&asset, &attestors, &2, &SEVERITY_MEDIUM, &0));
+
+    // Even if max_severity is HIGH, clawback is set in union of flags, so if max_severity were below HIGH it would reject.
+    // At HIGH, it is admitted:
+    assert!(client.is_safe_quorum(&asset, &attestors, &2, &SEVERITY_HIGH, &0));
+}
+
+/// Property test: conservative aggregation means one honest responding attestor reporting danger
+/// prevents admission across arbitrary combinations of responding attestor severities and thresholds.
+#[test]
+fn quorum_conservative_aggregation_property() {
+    let (env, client, admin) = setup();
+    let asset = Address::generate(&env);
+
+    // Honest attestor sets severity to HIGH (3)
+    client.attest(&asset, &SEVERITY_HIGH, &0, &hash(&env));
+
+    // Generate up to 5 other attestors with arbitrary severities (including 0, 1, 2)
+    let other_severities = [
+        SEVERITY_CLEAR,
+        SEVERITY_LOW,
+        SEVERITY_MEDIUM,
+        SEVERITY_CLEAR,
+        SEVERITY_LOW,
+    ];
+    let mut attestors = Vec::new(&env);
+    attestors.push_back(admin);
+
+    for (i, &sev) in other_severities.iter().enumerate() {
+        let att = Address::generate(&env);
+        env.as_contract(&client.address, || {
+            env.storage().persistent().set(
+                &DataKey::Attestation(att.clone(), asset.clone()),
+                &Safety {
+                    severity: sev,
+                    flags: 0,
+                    evidence_hash: hash(&env),
+                    attested_at: env.ledger().timestamp(),
+                },
+            );
+        });
+        attestors.push_back(att);
+
+        // For any threshold from 1 to current set length:
+        // A gate requiring severity <= MEDIUM (2) MUST reject (return false)
+        // because the one honest attestor is in the set and its SEVERITY_HIGH (3) raises aggregate severity.
+        for thresh in 1..=attestors.len() {
+            assert!(
+                !client.is_safe_quorum(&asset, &attestors, &thresh, &SEVERITY_MEDIUM, &0),
+                "honest attestor reporting HIGH failed to prevent admission under threshold {thresh} at step {i}"
+            );
+        }
+    }
+}
+
+#[test]
+fn quorum_cost_at_the_bound() {
+    let (env, client, _admin) = setup();
+    let asset = Address::generate(&env);
+
+    let mut attestors = Vec::new(&env);
+    for _ in 0..MAX_ATTESTORS {
+        let att = Address::generate(&env);
+        env.as_contract(&client.address, || {
+            env.storage().persistent().set(
+                &DataKey::Attestation(att.clone(), asset.clone()),
+                &Safety {
+                    severity: SEVERITY_CLEAR,
+                    flags: 0,
+                    evidence_hash: hash(&env),
+                    attested_at: env.ledger().timestamp(),
+                },
+            );
+        });
+        attestors.push_back(att);
+    }
+    assert_eq!(attestors.len(), MAX_ATTESTORS);
+
+    let res = client.quorum(&asset, &attestors, &MAX_ATTESTORS, &0);
+    assert_eq!(
+        res,
+        Quorum::Met(Safety {
+            severity: SEVERITY_CLEAR,
+            flags: 0,
+            evidence_hash: hash(&env),
+            attested_at: env.ledger().timestamp(),
+        })
+    );
+
+    let r = env.cost_estimate().resources();
+    let footprint = r.disk_read_entries + r.memory_read_entries + r.write_entries;
+
+    assert_eq!(r.contract_events_size_bytes, 0);
     assert!(footprint <= 400, "footprint entries {footprint} exceed 400");
     assert!(
         r.instructions <= 400_000_000,

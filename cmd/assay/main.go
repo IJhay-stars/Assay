@@ -128,8 +128,9 @@ func usage(w io.Writer) {
 	_, _ = fmt.Fprint(w, `usage:
   assay scan CODE-ISSUER          classify one asset and print the report as JSON
   assay attestation CODE-ISSUER   print the on-chain attest() arguments for one asset
-  assay verify [-json] [-max-age SECS] CODE-ISSUER
+  assay verify [-json] [-max-age SECS] [-differential [-rpc URL]] CODE-ISSUER
                                   compare a live scan with the on-chain attestation
+                                  (with -differential, also re-read issuer flags via RPC)
   assay verify -bundle IN [-json]
                                   verify an offline bundle without a network
   assay diff [-json] A.json B.json
