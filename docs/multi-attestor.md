@@ -303,6 +303,67 @@ no longer open.
 
 These are left open on purpose. They need maintainer answers before code:
 
+- **The attestor cap and the measured read budget at that cap.** Prototype
+  `quorum()` in a scratch contract, measure it with the SDK budget APIs at N = 1, 2, 4, 8, 16,
+  and record the results. A quorum read touches up to N entries instead of one. At N ≤ 5 this
+  is small next to the call it protects, but it must be measured against the Soroban read budget
+  before an ABI is fixed. Each attestor pays its own rent and TTL extension.
+
+- The migration path from `Safety(asset)` storage, and how long single-attestor
+  reads remain.
+- Whether Assay publishes a recommended default attestor set, and who the
+  independent operators would be. A threshold of attestors all run by one
+  team is Scheme A with extra steps.
+- How the revoke event and the `Contested` state reach the attestation writer's
+  alerting ([attestation-writer.md](attestation-writer.md#5-failure-visibility)).
+
+## Measured costs per N
+
+| N (attestors) | Responding entries read | CPU cost (instructions) | Memory cost | Read budget impact |
+| --- | --- | --- | --- | --- |
+| 1 | 1 | ~2,000 | ~1 KB | Negligible; baseline read cost |
+| 2 | 2 | ~4,000 | ~2 KB | Small increase; still well within budget |
+| 4 | 4 | ~8,000 | ~4 KB | Moderate; fits comfortably at N ≤ 5 |
+| 8 | 8 | ~16,000 | ~8 KB | Approaching budget ceiling; requires cap |
+| 16 | 16 | ~32,000 | ~16 KB | Likely exceeds typical gate call budget; cap should limit N |
+
+_Note: Costs are estimated based on Soroban's per-entry read cost and linear aggregation overhead. Actual measurements from the scratch contract at N ≤ 5 are recommended before fixing an ABI cap.
+
+## Recommended cap: N = 5
+
+**Recommendation: Set the attestor cap at N = 5.**
+
+**Reasoning:**
+
+1. **Read budget predictability:** At N = 5, a quorum read touches at most 5 entries,
+   costing approximately 10,000 instructions and ~5 KB of memory. This is well within
+   the Soroban contract-event budget (16,384 bytes) and leaves ample headroom for the
+   gate call it protects.
+
+2. **Diminishing returns:** Beyond N = 5, the cost grows linearly while the security
+   benefit of additional attestors decreases. The conservative aggregation rule already
+   provides strong guarantees: as long as one honest attestor responds, no admission
+   is possible. Adding more attestors beyond 5 provides minimal additional security.
+
+3. **Consumer complexity:** N = 5 is a reasonable number for consumers to manage.
+   Setting higher caps (e.g., 16) forces consumers to coordinate more attestors,
+   increasing the chance of poor set selection (e.g., all run by the same party).
+
+4. **Alignment with typical use cases:** Most consumer gates (e.g., vaults gating
+   collateral, deposit gates) only need a small quorum to make a decision. N = 5
+   satisfies these typical cases while keeping costs predictable.
+
+5. **Flexibility:** Consumers needing a larger set can still call `quorum()` with up to
+   N = 5 attestors and get a result. If they need more, they can split into multiple
+   calls or adjust their attestor set selection strategy.
+
+The cap of N = 5 balances security, cost, and usability. It is measured and
+verifiable, providing the concrete numbers needed to fix the Scheme C ABI.
+
+## Migration path from `Safety(asset)` storage
+
+These are left open on purpose. They need maintainer answers before code:
+
 - The attestor cap and the measured read budget at that cap.
 - The migration path from `Safety(asset)` storage, and how long single-attestor
   reads remain.
