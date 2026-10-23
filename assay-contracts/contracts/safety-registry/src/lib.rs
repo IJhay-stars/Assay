@@ -1061,6 +1061,9 @@ impl SafetyRegistry {
         let mut first_flags = 0u32;
         let mut latest_timestamp = 0u64;
         let mut evidence_hash = BytesN::from_array(&env, &[0u8; 32]);
+        // The aggregate reports the encoding of the hash it carries: both come
+        // from the same responding attestation.
+        let mut preimage_version = 0u32;
         let mut all_agree = true;
 
         for attestor in deduped.iter() {
@@ -1069,6 +1072,7 @@ impl SafetyRegistry {
                     if responding_count == 0 {
                         first_flags = s.flags;
                         evidence_hash = s.evidence_hash.clone();
+                        preimage_version = s.preimage_version;
                     } else if s.severity != max_severity || s.flags != first_flags {
                         all_agree = false;
                     }
@@ -1084,6 +1088,7 @@ impl SafetyRegistry {
                     if s.attested_at > latest_timestamp {
                         latest_timestamp = s.attested_at;
                         evidence_hash = s.evidence_hash.clone();
+                        preimage_version = s.preimage_version;
                     }
                 }
             }
@@ -1099,6 +1104,7 @@ impl SafetyRegistry {
                 flags: union_flags,
                 evidence_hash,
                 attested_at: latest_timestamp,
+                preimage_version,
             })
         }
     }

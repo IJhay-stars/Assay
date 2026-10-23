@@ -2041,12 +2041,12 @@ fn version_returns_interface_version() {
 /// The interface version is an ABI constant: it starts at 1 and only moves on
 /// a deliberate ABI change, which must be mirrored in docs/contract-interface.md.
 ///
-/// Version 2 is the #349 change — `Error::InvalidAsset` joined the error set —
-/// and nothing else about the interface moved: same entrypoints, same shapes,
-/// same events.
+/// Version 2 is the #349 change — `Error::InvalidAsset` joined the error set.
+/// Version 3 is the #284 change: the stored `Safety` gained `preimage_version`,
+/// so a reader can tell which evidence encoding its `evidence_hash` used.
 #[test]
 fn interface_version_is_abi() {
-    assert_eq!(INTERFACE_VERSION, 2);
+    assert_eq!(INTERFACE_VERSION, 3);
 }
 
 /// Results come back in the order the assets were asked for, and an asset that
@@ -2203,6 +2203,7 @@ fn quorum_deduplicates_attestors_and_cannot_inflate_threshold() {
             flags: 0,
             evidence_hash: hash(&env),
             attested_at: env.ledger().timestamp(),
+            preimage_version: 4,
         })
     );
 }
@@ -2226,6 +2227,7 @@ fn quorum_contested_and_unavailable_are_distinguishable_on_chain() {
                 flags: MECH_CLAWBACK_ENABLED,
                 evidence_hash: hash(&env),
                 attested_at: env.ledger().timestamp(),
+                preimage_version: 4,
             },
         );
     });
@@ -2262,6 +2264,7 @@ fn quorum_conservative_aggregation_one_honest_attestor_prevents_admission() {
                 flags: 0,
                 evidence_hash: hash(&env),
                 attested_at: env.ledger().timestamp(),
+                preimage_version: 4,
             },
         );
     });
@@ -2308,6 +2311,7 @@ fn quorum_conservative_aggregation_property() {
                     flags: 0,
                     evidence_hash: hash(&env),
                     attested_at: env.ledger().timestamp(),
+                    preimage_version: 4,
                 },
             );
         });
@@ -2341,6 +2345,7 @@ fn quorum_cost_at_the_bound() {
                     flags: 0,
                     evidence_hash: hash(&env),
                     attested_at: env.ledger().timestamp(),
+                    preimage_version: 4,
                 },
             );
         });
@@ -2356,6 +2361,7 @@ fn quorum_cost_at_the_bound() {
             flags: 0,
             evidence_hash: hash(&env),
             attested_at: env.ledger().timestamp(),
+            preimage_version: 4,
         })
     );
 

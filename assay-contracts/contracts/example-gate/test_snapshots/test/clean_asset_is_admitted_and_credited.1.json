@@ -120,6 +120,14 @@
                   },
                   {
                     "key": {
+                      "symbol": "preimage_version"
+                    },
+                    "val": {
+                      "u32": 4
+                    }
+                  },
+                  {
+                    "key": {
                       "symbol": "severity"
                     },
                     "val": {

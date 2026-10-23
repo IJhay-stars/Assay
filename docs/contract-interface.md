@@ -86,7 +86,7 @@ struct is a supported argument type in soroban-sdk 27.
 ## Interface versioning
 
 `version()` is a read-only entrypoint that returns the contract's interface
-version (`INTERFACE_VERSION`), currently `2`. A consumer or a drift script can
+version (`INTERFACE_VERSION`), currently `3`. A consumer or a drift script can
 call it to ask "what is this contract?" instead of inferring the interface from
 a wasm hash.
 
