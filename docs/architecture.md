@@ -21,50 +21,6 @@ The split is also the reason the leaf fetchers (`internal/horizon`,
 transport and a clean signature, so it can be extracted into a shared
 ledger-access library later without untangling judgment logic from HTTP.
 
-## Data flow
-
-From external sources, through the fetchers and the checks, to the on-chain
-attestation and the contracts that read it:
-
-```mermaid
-flowchart LR
-    subgraph sources["External sources (read-only)"]
-        HZ["Horizon<br/>issuer flags, account, trustline"]
-        TOML["Issuer stellar.toml<br/>SEP-1 home domain"]
-        EXP["StellarExpert<br/>curated directory, blocked domains"]
-    end
-
-    subgraph scanpkg["internal/scan — the only network I/O for a scan"]
-        FETCH["horizon + sep1 + stellarexpert<br/>every source fetched once"]
-        SUBJ["mechanics.Subject<br/>all signals, with per-source fetch times"]
-        FETCH --> SUBJ
-    end
-
-    subgraph core["Pure core — no I/O"]
-        MECH["internal/mechanics<br/>checks: Subject to Report"]
-        ATTEST["internal/attest<br/>Report to attest() args<br/>plus evidence_hash"]
-        MECH --> ATTEST
-    end
-
-    REG["safety-registry contract<br/>attest / get_safety / is_safe"]
-    GATE["example-gate contract<br/>refuses assets it cannot hold"]
-
-    HZ --> FETCH
-    TOML --> FETCH
-    EXP --> FETCH
-    SUBJ -->|Subject| MECH
-    ATTEST -->|attest args| REG
-    REG -->|get_safety| GATE
-```
-
-A second path observes the same reports over time rather than acting on them:
-`internal/mechanics` produces an observation, `internal/history` appends it,
-and `internal/temporal` subtracts one observation from another to answer what
-changed. `internal/api` exposes both the current scan and the history over
-HTTP. Neither path feeds back into a check.
-
-## Where I/O is confined
-
 | Kind of I/O | Where it lives | Everything else |
 | --- | --- | --- |
 | Outbound HTTP for a scan | `internal/scan`, via the three leaf fetchers | Checks in `internal/mechanics` are pure |
@@ -85,14 +41,18 @@ Every Go package, its responsibility, and the boundary it must respect.
 | Package | Responsibility | Boundary |
 | --- | --- | --- |
 | `cmd/assay` | The `assay` binary: `scan`, `attestation`, `verify`, `diff`, `history`, `registry-history`, `serve`. Parses arguments, wires the scanner and API, prints JSON. | Process entry point. Fetches nothing itself; delegates to `internal/scan` and `internal/api`. |
+| `cmd/assay-attester` | The keyless half of the attestation writer: `--dry-run --once` (scan, derive `attest()` arguments and the SAC address, never sign), a read-only `--watch` for issuer flag changes, and `diff` for the CI dry-run. See [attester.md](attester.md). | Process entry point. Loads no key material; delegates to `internal/attester`. |
 | `cmd/attestfixture` | Derives `attest()` arguments from one labelled fixture for the local-network end-to-end test. | Offline test helper; reads fixtures through `internal/eval` and never fetches a source. |
 | `cmd/eval` | Records and diffs the labelled eval baseline. | Offline; reads fixtures through `internal/eval`. |
 | `cmd/refreshfixture` | Re-captures corpus fixtures from recorded live source URLs to detect upstream drift. | Offline maintenance only; never run in CI or live scan. |
 | `internal/api` | HTTP API (`/api/v1/scan`, `/api/v1/history`, `/healthz`) and the embedded single-file UI. | Inbound HTTP only. Does not fetch sources; it calls the scanner. Its one `horizon` import is the `ErrNotFound` sentinel, not a fetch. |
+| `internal/attester` | Attested-set config, the dry-run pass and its exit codes, the dry-run diff, and the issuer watcher. | Calls the scanner (or replays fixtures through `internal/eval`) and reads Horizon operations through `internal/horizon`. No key material and no transaction submission. |
 | `internal/assetlist` | Fetches and parses SEP-0042 Stellar Asset Lists to provide curated asset metadata and claims. | Outbound HTTP. Leaf package; called by `internal/scan`. |
 | `internal/cache` | Thread-safe in-memory TTL cache for HTTP responses and reputation queries. | No I/O. In-memory storage only; leaf package used by `internal/stellarexpert`. |
 | `internal/differential` | Compares Assay scanner reports against stellar-core XDR ledger state. | Test and verification utility; reads XDR and ledger state, no production dependencies. |
+| `internal/docindex` | Test-only check that the README docs tables stay in sync with `docs/`: every document is linked from the README, and every README link into `docs/` resolves. | Test-only; no production code, no I/O beyond reading the repository's own markdown. |
 | `internal/fixtures` | Utilities to read, diff, refresh, and validate test fixture manifests and provenance. | Filesystem I/O for fixtures; outbound HTTP when re-capturing. Offline and test only. |
+| `internal/sac` | Derives a classic asset's Stellar Asset Contract address for a network, exactly as `stellar contract id asset` does. | **No I/O.** A pure function of asset and network passphrase. |
 | `internal/scan` | The network edge for a scan: fetches every source once, assembles `mechanics.Subject` (and an optional holder trustline), then runs the engine. | **The only package that performs network I/O for a scan.** |
 | `internal/mechanics` | The checks. Maps ledger flags and attributed source signals to `Finding`s, then aggregates them into a `Report` with severity and reasoning. | **No I/O.** A pure function from `Subject` to `Report`. |
 | `internal/attest` | Canonicalises a `Report` into the exact `attest()` arguments, and specifies the `evidence_hash` preimage and encoding. | **No I/O of any kind.** |
@@ -104,6 +64,7 @@ Every Go package, its responsibility, and the boundary it must respect.
 | `internal/stellarexpert` | Retrieves StellarExpert's curated directory and blocked-domain data as attributed evidence. | Outbound HTTP. Leaf package. |
 | `internal/eval` | Replays the labelled corpus from captured fixtures through the engine; records and diffs the results. | Reads fixtures from disk; never the network. |
 | `internal/replay` | Records every upstream response a live scan fetches (manifest + bodies) and replays a scan from that recording. | Filesystem I/O for recordings only. The replayer replaces the HTTP transport outright, so a replay never reaches the network. |
+| `internal/registry` | Reads the Assay safety registry on-chain through Soroban RPC simulation. | Outbound HTTP to Soroban RPC; read-only simulation; no signing or contract state mutation. |
 | `internal/version` | The scanner version identity recorded with every eval run. | No I/O. Leaf package. |
 
 The two Soroban contracts:
@@ -112,6 +73,10 @@ The two Soroban contracts:
 | --- | --- | --- |
 | `safety-registry` | Stores attestations produced off-chain and serves them: `attest`, `get_safety`, `is_safe`, `is_safe_masked`, `revoke`, `init`. | On-chain only. A contract cannot fetch, so it does not scan — it stores a severity and a bitset that `evidence_hash` makes checkable. |
 | `example-gate` | A worked integrator: refuses a deposit in an asset whose issuer can confiscate or freeze, by calling `get_safety`. | Depends only on the registry's interface, not on Assay at build time. |
+
+## Cross-link
+
+Refer to `pipeline.md` for a per-asset walk-through of the scan-to-gate path using the DOGE example.
 
 ## Dependency direction
 
@@ -131,27 +96,49 @@ flowchart TD
     CMDASSAY["cmd/assay"] --> API["internal/api"]
     CMDASSAY --> ATTEST["internal/attest"]
     CMDASSAY --> BUNDLE["internal/bundle"]
+    CMDASSAY --> DIFF["internal/differential"]
     CMDASSAY --> HIST["internal/history"]
+    CMDASSAY --> HZ["internal/horizon"]
     CMDASSAY --> MECH["internal/mechanics"]
+    CMDASSAY --> REPLAY["internal/replay"]
     CMDASSAY --> SCAN["internal/scan"]
+    CMDASSAY --> TEMP["internal/temporal"]
+
+    CMDATTESTER["cmd/assay-attester"] --> ATTESTER["internal/attester"]
+    CMDATTESTER --> HZ
+    CMDATTESTER --> MECH
+    CMDATTESTER --> SCAN
 
     CMDATTESTFIXTURE["cmd/attestfixture"] --> ATTEST
     CMDATTESTFIXTURE --> EVAL["internal/eval"]
+    CMDATTESTFIXTURE --> HZ
     CMDATTESTFIXTURE --> MECH
 
-    CMDEVAL["cmd/eval"] --> EVAL["internal/eval"]
+    CMDEVAL["cmd/eval"] --> EVAL
     CMDEVAL --> MECH
 
-    API --> HIST
+    CMDREFRESHFIXTURE["cmd/refreshfixture"] --> FIXTURES["internal/fixtures"]
+
+    API --> HIST["internal/history"]
     API --> HZ["internal/horizon"]
     API --> MECH
-    API --> SCAN
+    API --> SCAN["internal/scan"]
     API --> TEMP["internal/temporal"]
 
     ATTEST --> MECH
+    ATTEST --> VER["internal/version"]
+    ATTESTER --> ATTEST
+    ATTESTER --> EVAL
+    ATTESTER --> HZ
+    ATTESTER --> MECH
+    ATTESTER --> SAC["internal/sac"]
+    ATTESTER --> SCAN
+
     BUNDLE --> ATTEST
     BUNDLE --> MECH
     BUNDLE --> REPLAY["internal/replay"]
+
+    DIFF --> HZ
 
     EVAL --> HZ
     EVAL --> MECH
@@ -159,13 +146,17 @@ flowchart TD
     EVAL --> EXP["internal/stellarexpert"]
     EVAL --> VER["internal/version"]
 
+    EXP --> CACHE["internal/cache"]
+
     HIST --> MECH
     HIST --> TEMP
 
+    MECH --> ASSETLIST["internal/assetlist"]
     MECH --> HZ
     MECH --> SEP1
     MECH --> EXP
 
+    SCAN --> ASSETLIST
     SCAN --> HZ
     SCAN --> MECH
     SCAN --> SEP1

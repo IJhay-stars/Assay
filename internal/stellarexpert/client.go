@@ -341,7 +341,9 @@ func (c *Client) BlockedDomain(ctx context.Context, domain string, opts ...Looku
 			return Answer[BlockedDomain]{}, err
 		}
 		at := c.now()
-		if !found {
+		// A record with no domain names nothing on the blocklist: treat it as
+		// not blocked rather than reporting an empty entry as a listing.
+		if !found || b.Domain == "" {
 			return Answer[BlockedDomain]{FetchedAt: at}, nil
 		}
 		return Answer[BlockedDomain]{Value: &b, FetchedAt: at}, nil

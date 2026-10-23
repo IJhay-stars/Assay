@@ -110,6 +110,62 @@ type Flags struct {
 	AuthClawbackEnabled bool `json:"auth_clawback_enabled"`
 }
 
+// UnmarshalJSON decodes a Horizon flags object, refusing a partial one.
+//
+// Horizon always publishes all four authorization flags. Decoded into plain
+// bools, a flag the response omitted would be indistinguishable from a false
+// one — and a silently-false auth_clawback_enabled or auth_revocable turns a
+// malformed response into a wrong capability reading, which is precisely the
+// failure the severity model cannot survive. So a flags object missing any of
+// the four keys, or carrying anything but a boolean, is a decode error: a
+// complete flag set or an error, never a half-populated one.
+func (f *Flags) UnmarshalJSON(b []byte) error {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raw); err != nil {
+		return fmt.Errorf("horizon: flags: %w", err)
+	}
+	var out Flags
+	for _, field := range []struct {
+		key string
+		dst *bool
+	}{
+		{"auth_required", &out.AuthRequired},
+		{"auth_revocable", &out.AuthRevocable},
+		{"auth_immutable", &out.AuthImmutable},
+		{"auth_clawback_enabled", &out.AuthClawbackEnabled},
+	} {
+		v, ok := raw[field.key]
+		if !ok {
+			return fmt.Errorf("horizon: flags object carries no %s", field.key)
+		}
+		if err := json.Unmarshal(v, field.dst); err != nil {
+			return fmt.Errorf("horizon: flags %s: %w", field.key, err)
+		}
+	}
+	*f = out
+	return nil
+}
+
+// requireFlagsObject refuses a record whose flags key is absent.
+//
+// encoding/json skips a field whose key is missing, so a record with no
+// `flags` at all would decode to an all-false flag set without ever invoking
+// Flags.UnmarshalJSON — the same silent false a partial flags object would
+// produce, from the other direction. Presence is checked here; completeness
+// inside the object is Flags.UnmarshalJSON's job.
+func requireFlagsObject(b []byte) error {
+	var probe struct {
+		Flags json.RawMessage `json:"flags"`
+	}
+	if err := json.Unmarshal(b, &probe); err != nil {
+		return fmt.Errorf("horizon: decode record: %w", err)
+	}
+	if probe.Flags == nil {
+		return errors.New("horizon: record carries no flags object")
+	}
+	return nil
+}
+
 // AssetStat is the subset of Horizon's /assets record that Assay reasons about.
 type AssetStat struct {
 	AssetType   string `json:"asset_type"`
@@ -128,11 +184,43 @@ type AssetStat struct {
 	} `json:"_links"`
 }
 
+// UnmarshalJSON decodes an asset record, requiring its flags object; see
+// requireFlagsObject for why an absent key must be an error rather than an
+// all-false flag set.
+func (s *AssetStat) UnmarshalJSON(b []byte) error {
+	type wire AssetStat
+	var w wire
+	if err := json.Unmarshal(b, &w); err != nil {
+		return fmt.Errorf("horizon: decode asset: %w", err)
+	}
+	if err := requireFlagsObject(b); err != nil {
+		return err
+	}
+	*s = AssetStat(w)
+	return nil
+}
+
 // Account is the subset of Horizon's /accounts record that Assay reasons about.
 type Account struct {
 	AccountID  string `json:"account_id"`
 	HomeDomain string `json:"home_domain"`
 	Flags      Flags  `json:"flags"`
+}
+
+// UnmarshalJSON decodes an account record, requiring its flags object; see
+// requireFlagsObject for why an absent key must be an error rather than an
+// all-false flag set.
+func (a *Account) UnmarshalJSON(b []byte) error {
+	type wire Account
+	var w wire
+	if err := json.Unmarshal(b, &w); err != nil {
+		return fmt.Errorf("horizon: decode account: %w", err)
+	}
+	if err := requireFlagsObject(b); err != nil {
+		return err
+	}
+	*a = Account(w)
+	return nil
 }
 
 // TrustlineBalance is a single credit-trustline entry from the balances array

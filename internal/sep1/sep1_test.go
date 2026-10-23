@@ -140,6 +140,47 @@ issuer = "` + issuer + `"
 	}
 }
 
+// TestNetworkPassphraseField: NETWORK_PASSPHRASE is read verbatim from the
+// document root, and an undeclared key parses to the empty string rather than
+// to a value that could be mistaken for one (#370). This pins the decoder half
+// of the check; the comparison against the scanned network lives in the domain
+// check. Absence has to stay distinguishable from a declaration, because only
+// a declaration can be a mismatch.
+func TestNetworkPassphraseField(t *testing.T) {
+	const currencies = `
+[[CURRENCIES]]
+code = "USDC"
+issuer = "` + issuer + `"
+`
+	cases := []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "declared",
+			body: `NETWORK_PASSPHRASE = "Test SDF Network ; September 2015"` + currencies,
+			want: "Test SDF Network ; September 2015",
+		},
+		{
+			name: "absent",
+			body: currencies,
+			want: "",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := sep1.Parse([]byte(tc.body))
+			if err != nil {
+				t.Fatalf("parse: %v", err)
+			}
+			if doc.NetworkPassphrase != tc.want {
+				t.Errorf("NetworkPassphrase = %q, want %q", doc.NetworkPassphrase, tc.want)
+			}
+		})
+	}
+}
+
 // SEP-0001 permits a currency entry that links to a separate per-currency
 // TOML. Counting those entries is what lets the domain check say
 // "unconfirmed" instead of wrongly saying "refuted", because a link Assay did

@@ -1,0 +1,39 @@
+{
+  "network": "testnet",
+  "contract_id": "CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73",
+  "fixtures_dir": "internal/mechanics/testdata",
+  "assets": [
+    {
+      "asset": "AQUA-GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA",
+      "fixture": "aqua-clear-verified"
+    },
+    {
+      "asset": "BERKSHIRE-GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ",
+      "fixture": "berkshire-clawback-scam"
+    },
+    {
+      "asset": "DOGE-GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P",
+      "fixture": "doge-noflags-scam"
+    },
+    {
+      "asset": "SHX-GDSTRSHXHGJ7ZIVRBXEYE5Q74XUVCUSEKEBR7UCHEUUEK72N7I7KJ6JH",
+      "fixture": "shx-clear-flagslocked"
+    },
+    {
+      "asset": "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "fixture": "usdc-revocable-regulated"
+    },
+    {
+      "asset": "USDZ-GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR",
+      "fixture": "usdz-clawback-regulated"
+    },
+    {
+      "asset": "VELO-GDM4RQUQQUVSKQA7S6EM7XBZP3FCGH4Q7CL6TABQ7B2BEJ5ERARM2M5M",
+      "fixture": "velo-no-home-domain"
+    },
+    {
+      "asset": "XRP-GBXRPL45NPHCVMFFAYZVUVFFVKSIZ362ZXFP7I2ETNQ3QKZMFLPRDTD5",
+      "fixture": "xrp-clear-unlocked"
+    }
+  ]
+}

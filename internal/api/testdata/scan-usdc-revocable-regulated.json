@@ -1,0 +1,154 @@
+{
+  "accountability": "unverified",
+  "accountability_reason": "mismatch",
+  "asset": {
+    "code": "USDC",
+    "issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+  },
+  "base_severity": "medium",
+  "checks": [
+    "capability",
+    "mutability",
+    "reputation",
+    "sep1-domain"
+  ],
+  "escalated": false,
+  "evidence": [
+    {
+      "attempted": false,
+      "claim": "issuer flags: auth_required=false auth_revocable=true auth_immutable=false auth_clawback_enabled=false",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "horizon",
+      "url": "https://horizon.stellar.org/assets?asset_code=USDC\u0026asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    },
+    {
+      "attempted": false,
+      "claim": "home_domain \"circle.com\"",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "horizon",
+      "url": "https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    },
+    {
+      "attempted": false,
+      "claim": "listed under domain \"centre.io\"",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/directory",
+      "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    },
+    {
+      "attempted": false,
+      "claim": "listed as \"Centre\" (domain \"centre.io\", tags: anchor, issuer)",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/directory",
+      "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+    },
+    {
+      "attempted": false,
+      "claim": "domain \"circle.com\" blocked=false",
+      "retrieved_at": "2026-08-10T00:00:00Z",
+      "source": "stellar.expert/blocked-domains",
+      "url": "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com"
+    }
+  ],
+  "findings": [
+    {
+      "check": "capability",
+      "escalation": false,
+      "evidence": [
+        {
+          "attempted": false,
+          "claim": "issuer flags: auth_required=false auth_revocable=true auth_immutable=false auth_clawback_enabled=false",
+          "retrieved_at": "2026-08-10T00:00:00Z",
+          "source": "horizon",
+          "url": "https://horizon.stellar.org/assets?asset_code=USDC\u0026asset_issuer=GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        }
+      ],
+      "mechanics": [
+        "auth_revocable"
+      ],
+      "reasoning": "The issuer can freeze your balance so you cannot move it (auth_revocable). ",
+      "severity": "medium",
+      "title": "Issuer capability",
+      "undetermined": false
+    },
+    {
+      "check": "mutability",
+      "escalation": false,
+      "evidence": [],
+      "mechanics": [],
+      "reasoning": "The issuer's flag set is not locked (auth_immutable is unset), so it can still change. The issuer can freeze an existing holder's balance (auth_revocable) today, and it may give that power up, or add another, later. Under CAP-0035 a flag added later applies only to trustlines opened after the change — it does not reach a trustline that already exists — so this verdict is correct for a trustline opened now but is not guaranteed to stay correct for one opened later. Severity is unchanged; mutability is reported, not scored.",
+      "severity": "clear",
+      "title": "Issuer flag mutability",
+      "undetermined": false
+    },
+    {
+      "accountability": "unverified",
+      "accountability_reason": "mismatch",
+      "check": "sep1-domain",
+      "escalation": false,
+      "evidence": [
+        {
+          "attempted": false,
+          "claim": "home_domain \"circle.com\"",
+          "retrieved_at": "2026-08-10T00:00:00Z",
+          "source": "horizon",
+          "url": "https://horizon.stellar.org/accounts/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        },
+        {
+          "attempted": false,
+          "claim": "listed under domain \"centre.io\"",
+          "retrieved_at": "2026-08-10T00:00:00Z",
+          "source": "stellar.expert/directory",
+          "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        }
+      ],
+      "mechanics": [
+        "domain_unverified"
+      ],
+      "reasoning": "The issuer advertises home_domain \"circle.com\", but the curated directory lists the same issuer under \"centre.io\". The two sources disagree about who claims this asset, so accountability is unverified: it cannot be determined which domain, if either, published a reciprocal claim.",
+      "severity": "clear",
+      "title": "Issuer domain verification",
+      "undetermined": false
+    },
+    {
+      "check": "reputation",
+      "escalation": true,
+      "evidence": [
+        {
+          "attempted": false,
+          "claim": "listed as \"Centre\" (domain \"centre.io\", tags: anchor, issuer)",
+          "retrieved_at": "2026-08-10T00:00:00Z",
+          "source": "stellar.expert/directory",
+          "url": "https://api.stellar.expert/explorer/directory/GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
+        },
+        {
+          "attempted": false,
+          "claim": "domain \"circle.com\" blocked=false",
+          "retrieved_at": "2026-08-10T00:00:00Z",
+          "source": "stellar.expert/blocked-domains",
+          "url": "https://api.stellar.expert/explorer/directory/blocked-domains/circle.com"
+        }
+      ],
+      "mechanics": [],
+      "reasoning": "Curated sources returned data for this issuer and none of it flags the issuer as malicious. Recorded as attributed evidence only: it does not lower the capability severity, because a named issuer holds the same power over your balance as an anonymous one.",
+      "severity": "clear",
+      "title": "Curated reputation signals",
+      "undetermined": false
+    }
+  ],
+  "mechanics": [
+    "auth_revocable",
+    "domain_unverified"
+  ],
+  "network": "Public Global Stellar Network ; September 2015",
+  "observation_window_end": "2026-08-10T00:00:00Z",
+  "observation_window_start": "2026-08-10T00:00:00Z",
+  "scanned_at": "2026-08-10T00:00:00Z",
+  "scanner_bound": true,
+  "schema_version": 1,
+  "severity": "medium",
+  "stale": false,
+  "state": "valid",
+  "undetermined": false,
+  "undetermined_checks": []
+}

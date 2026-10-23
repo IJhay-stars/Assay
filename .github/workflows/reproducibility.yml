@@ -73,8 +73,8 @@ jobs:
           case "$rc" in
             0) echo "::notice title=Reproducibility::All attested evidence hashes reproduce." ;;
             2) echo "::warning title=Reproducibility::Inconclusive: at least one scan could not complete. Not a pass, not a failure; re-run when sources recover." ;;
-            3) echo "::error title=Reproducibility::Encoding drift (exit 3): a recorded hash reproduces under the current encoding, not under the version the table records. See the log."; exit 1 ;;
-            *) echo "::error title=Reproducibility::Mismatch or script error (exit $rc). See the log for the asset and both hashes."; exit 1 ;;
+            3) echo "::error title=Reproducibility::Encoding drift (exit 3): a recorded hash reproduces under the current encoding, not under the version the table records. See the log, then follow https://github.com/use-assay/Assay/blob/main/docs/reproducibility-mismatch.md"; exit 1 ;;
+            *) echo "::error title=Reproducibility::Mismatch or script error (exit $rc). See the log for the asset and both hashes, then follow https://github.com/use-assay/Assay/blob/main/docs/reproducibility-mismatch.md"; exit 1 ;;
           esac
 
       # Scheduled-run visibility (#277): a red scheduled run that nobody sees

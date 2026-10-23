@@ -121,7 +121,7 @@ The related case where the flags themselves were never read is
 | Axis | Field | Values | Question it answers |
 | --- | --- | --- | --- |
 | Severity | `Report.Severity`, `Report.Base` | `clear`, `low`, `medium`, `high`, `critical` (+ Go-only `unevaluated`) | What can the issuer do to a holder's balance? |
-| Accountability | `Report.Accountability` | `unknown`, `unverified`, `verified` | Who, if anyone, publicly claims this asset? |
+| Accountability | `Report.Accountability`, `Report.AccountabilityReason` | `unknown`, `unverified`, `verified`, plus reason `fetch_failed`/`not_claimed`/`mismatch`/`no_home_domain` | Who, if anyone, publicly claims this asset? |
 | Verdict state | `Report.State` | `valid`, `unknown`, `stale` | Is this answer complete and current? |
 | Completeness | `Report.Undetermined`, `undetermined_checks` | `true`/`false`, list of check IDs | Did every source answer? |
 | On-chain storage | `get_safety` | `None`, `Some(Safety)`, (archived restores) | Does a claim stand? |
@@ -165,16 +165,20 @@ Accountability is reported beside severity and never folded into it
 
 | Value | Produced by | Consumer action | Most confused with |
 | --- | --- | --- | --- |
-| `unknown` | `sep1-domain`: the issuer advertises no `home_domain` | Nobody has publicly claimed the asset. This is a definite answer. | `unverified` |
-| `unverified` | `sep1-domain`: a `home_domain` exists but the reciprocal claim failed or the toml did not resolve | A claim was attempted and not reciprocated, or not readable. | `unknown` |
-| `verified` | `sep1-domain`: the domain's `stellar.toml` lists this exact code and issuer | A named party has published a claim. It says nothing about the issuer's power or honesty. | `safe` |
+| `unknown` | `sep1-domain`: the issuer advertises no `home_domain`; reason `no_home_domain` | Nobody has publicly claimed the asset. This is a definite answer. | `unverified` |
+| `unverified` | `sep1-domain`: a `home_domain` exists but the reciprocal claim failed or the toml did not resolve; reason `fetch_failed`, `not_claimed`, or `mismatch` | A claim was attempted and not reciprocated, or not readable. Read `accountability_reason` to tell a broken web server from a refused claim. | `unknown` |
+| `verified` | `sep1-domain`: the domain's `stellar.toml` lists this exact code and issuer; no reason | A named party has published a claim. It says nothing about the issuer's power or honesty. | `safe` |
 
-`unverified` deliberately covers two different facts — "the toml did not
-resolve" and "it resolved and did not name this asset" — because SEP-1 does not
-let a consumer distinguish them from the field alone; the distinction survives
-in the attributed evidence and reasoning
-([attestation run](attestation-run.md#sep1-domain)). It does **not** cover
-"nobody claimed it": that is `unknown`.
+`unverified` no longer collapses two different facts. "The toml did not resolve"
+and "it resolved and did not name this asset" are reported as
+`accountability_reason: "fetch_failed"` and `accountability_reason: "not_claimed"`
+respectively, so a consumer switching on the JSON fields can tell a broken web
+server from a refused claim without reading the reasoning text. It does **not**
+cover "nobody claimed it": that is `unknown` with reason `no_home_domain`.
+The `accountability_reason` field is report metadata, not part of the hashed
+evidence preimage; the `accountability` line still renders one of `unknown`,
+`unverified`, `verified` and the encoding is unchanged
+([contract-interface](contract-interface.md#report-fields-outside-the-preimage)).
 
 ## Verdict state — is the answer complete
 

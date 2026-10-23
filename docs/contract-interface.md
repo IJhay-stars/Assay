@@ -73,6 +73,8 @@ pub fn init(env: Env, admin: Address) -> Result<(), Error>;
 pub fn transfer_admin(env: Env, new_admin: Address) -> Result<(), Error>;
 pub fn accept_admin(env: Env) -> Result<(), Error>;
 pub fn cancel_admin_transfer(env: Env) -> Result<(), Error>;
+pub fn admin(env: Env) -> Option<Address>;
+pub fn pending_admin(env: Env) -> Option<Address>;
 ```
 
 The `Vec<Attestation>` argument is confirmed against the built artifact rather
@@ -113,6 +115,7 @@ drift test, so it cannot drift from the deployed interface without a red build.
 | `NotAttested` | 5 | `revoke` for an asset with no attestation |
 | `NoPendingAdmin` | 6 | `accept_admin` or `cancel_admin_transfer` with no pending transfer |
 | `BatchTooLarge` | 7 | `attest_many` with more than `MAX_BATCH_SIZE` elements |
+| `InvalidAsset` | 8 | `attest`, `attest_many` with the registry's own address, the admin's address, or a non-contract address |
 
 ### `attest_many`: many attestations in one transaction
 
@@ -125,8 +128,9 @@ Every element is written exactly as `attest` writes it — the same
 event — and both entrypoints call the same validation function. A batch is
 **not** a lower bar:
 
-- `InvalidSeverity` and `InconsistentAttestation` are the same checks, on every
-  element. There is no batch path around the confiscation invariant.
+- `InvalidAsset`, `InvalidSeverity` and `InconsistentAttestation` are the same
+  checks, on every element. There is no batch path around the address rule or
+  the confiscation invariant.
 - `require_auth` on the admin is required, as for `attest`. An empty batch is
   authorized too: who may call an entrypoint is a property of the entrypoint,
   not of what it was handed.
@@ -324,9 +328,13 @@ is the first on-chain trace. `cancel_admin_transfer` publishes one
 handover is observable. A transfer or cancellation moves the admin role only —
 the stored attestations are untouched and `get_safety` keeps serving them.
 
-**The live testnet deployment predates all three entrypoints.**
+The current admin and pending admin can be read at any time without decoding instance storage:
+- **`admin()`** returns `Option<Address>` (`Some(Address)` after `init`, `None` before).
+- **`pending_admin()`** returns `Option<Address>` (`Some(Address)` during an active transfer handshake, `None` otherwise).
+
+**The live testnet deployment predates all five entrypoints.**
 `CBK4FBIH…` was deployed on 2026-08-15, before `transfer_admin`,
-`accept_admin`, and `cancel_admin_transfer` existed, and it has no upgrade
+`accept_admin`, `cancel_admin_transfer`, `admin`, and `pending_admin` existed, and it has no upgrade
 entrypoint to receive them. Calling any of them against the live contract fails
 as an unknown entrypoint, and rotating the live admin still means a new deployment
 and re-attestation — see
@@ -392,6 +400,14 @@ subscribe by asset without decoding every event body. The topic count is two,
 well within the SDK's four-topic limit, and `Symbol` is the required
 topic-0 shape for a filterable label.
 
+### Event budget impact
+
+Both admin-transfer events carry two addresses and a timestamp. They are
+published once per single (non-batched) admin call, so they do not affect the
+`attest_many` event budget; that cap is measured separately by
+`batch_size_bound_is_measured_and_holds_headroom` and leaves headroom for the
+event schema to grow.
+
 Severity values and mechanic bit positions are **ABI** and mirror
 `internal/mechanics` exactly. Do not renumber them.
 
@@ -424,6 +440,48 @@ code+issuer string pair. Verified live on Horizon (first recorded 2026-08-11,
 re-checked 2026-09-17): Circle's USDC has a canonical
 `contract_id` of `CCW67TSZV3SSS2HXMBQ5JFGCKJNXKZM7UQUWUZPUTHXSTZLEO7SJMI75`.
 `Address` comparison is cheap on-chain; string handling is not.
+
+**Decision (#349): `attest` refuses three kinds of address, and refuses to
+guess past them.** Storage is keyed by any `Address`, so a write aimed at the
+wrong address is fail-closed for the real asset — `get_safety` on the real SAC
+still returns `None` and every gate still refuses — but it is not harmless: it
+pays rent on an entry nobody will read as this asset, publishes an `Attested`
+event naming an address that is not this asset, and leaves an indexer
+something to explain. So the write path returns `InvalidAsset` for:
+
+1. **the registry's own address** — `attest` on the registry would key
+   `Safety(registry)` inside the registry and emit an event reading as the
+   registry attesting itself;
+2. **the admin's address** — the admin is the writer, never the subject. It is
+   normally an account, which rule 3 already covers, but `init` accepts any
+   `Address` and the direct comparison stays correct when the admin is a
+   contract (a multisig, say);
+3. **anything that is not a contract address** — an account (`G…`), a muxed
+   account (`M…`), a claimable balance or a liquidity pool id. A SAC is a
+   contract, so reading the address's type tag rules out the fat-finger case
+   the check exists for: pasting an issuer account where a SAC address belongs.
+
+Each rule costs a comparison or a tag read, with no host invocation. The
+single path and the batch path get all three from the same shared validation
+function, so `attest_many` cannot accept what `attest` refuses;
+`batch_with_an_invalid_asset_address_writes_nothing` pins that a bad address
+in the middle of a batch writes nothing at all.
+
+**What is deliberately not checked is the caller's to own: whether the
+contract at that address really is the SAC for the scanned CODE-ISSUER.**
+Answering it on-chain would mean invoking the candidate contract and trusting
+what it says about itself — neither cheap nor self-authenticating, since an
+impostor answers for itself. The same conclusion is reached off-chain, by
+resolving CODE-ISSUER to its SAC with `stellar contract id asset`, which is
+what `make attest` does before anything is signed. An impostor *contract*
+address therefore passes the on-chain rule, and the attester owns having
+resolved the right one; the stored claim is still what the scanner concluded,
+bound by `evidence_hash`.
+
+This was decided rather than assumed: the checks above are the ones that are
+cheap on-chain, everything else is documented as caller responsibility, and
+the type rule is testable — see `attest_rejects_a_non_contract_address`,
+`attest_rejects_the_registrys_own_address` and `attest_rejects_the_admin_address`.
 
 ### `Option`, so unknown is not safe
 
@@ -607,6 +665,27 @@ scanner	VERSION         (v4: immediately after the version line)
 ; September 2015` for testnet. The passphrase is the one network identifier the
 ecosystem already agrees on, and the value is fixed by the protocol. It is not
 configuration.
+
+#### Report fields outside the preimage
+
+Some report fields are rendered in the JSON and CLI output but are deliberately
+not part of the hashed evidence preimage: `state`, `stale`, `undetermined`,
+`undetermined_checks`, `undetermined_rate`, `scanned_at`, and
+`accountability_reason`. They describe the report's completeness and the
+classification of its verdict, not the evidence the verdict commits to, so they
+move nothing in `evidence_hash`.
+
+`accountability_reason` was added in #367 to split the two facts that
+`accountability: unverified` had collapsed — `fetch_failed` (the stellar.toml
+could not be read) from `not_claimed` (it was fetched and does not name this
+asset), plus `mismatch` (the advertised home_domain disagrees with the curated
+directory) and `no_home_domain` (there was no claim to verify, so
+`accountability` is `unknown`). Because it is not evidence, the preimage
+encoding is unchanged: `accountability` still renders one of `unknown`,
+`unverified`, `verified`, and there is no `assay-evidence-v5`. The distinction
+already survives in the attributed evidence claim text (for example
+`not retrievable: status 404` versus `CURRENCIES lists ... none matching`);
+`accountability_reason` merely makes it machine-readable from JSON alone.
 
 A report whose bindings are not one of the four rows above (a network without
 a check set, or a scanner without both) has no tag. `attest.FromReport` refuses

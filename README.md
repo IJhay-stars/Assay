@@ -56,29 +56,89 @@ carries an explicit, evaluated position on legitimate clawback use. See
 
 ## Docs
 
+Every document under `docs/` appears in exactly one table below, grouped by
+who reads it. CI fails if a document is added without a row here, or if a row
+links a file that does not exist (see `internal/docindex`).
+
+### For integrators
+
+Call `get_safety`, run the binary, consume the API.
+
 | Document | What's in it |
 | --- | --- |
-| [docs/glossary.md](docs/glossary.md) | Every state Assay reports — severity, accountability, verdict state, `undetermined` — and the state each is most often confused with |
-| [docs/cli.md](docs/cli.md) | The `assay` binary: scan, attestation, verify, diff, history, serve |
-| [docs/severity-model.md](docs/severity-model.md) | The judgment layer: severity levels, the legitimate-use carve-out, and why |
-| [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
-| [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design and the `evidence_hash` encoding |
-| [docs/api-versioning.md](docs/api-versioning.md) | What `/api/v1` guarantees: additive vs breaking changes and the deprecation process |
 | [docs/integrating.md](docs/integrating.md) | How your contract calls `get_safety` and gates on both severity and the bitset |
-| [docs/trust.md](docs/trust.md) | What you are trusting: verifiable facts vs. relayed claims, and consequence matrix |
-| [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
-| [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
-| [docs/verifying.md](docs/verifying.md) | How a third party verifies a downloaded binary, then an attestation, end to end, without reading the source |
-| [docs/offline-bundle.md](docs/offline-bundle.md) | Archiving the exact source bytes behind an attestation, and verifying them without a network |
-| [docs/transitions.md](docs/transitions.md) | What changed between two observations: capability, severity, accountability and evidence movement |
-| [docs/attestation-run.md](docs/attestation-run.md) | Every asset scanned, what each check returned, and what the run exposed about the scanner |
-| [docs/history.md](docs/history.md) | The observation history API: what is retained, for how long, and what an empty history means |
-| [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
-| [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
-| [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
+| [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design and the `evidence_hash` encoding |
+| [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
+| [docs/cli.md](docs/cli.md) | The `assay` binary: scan, attestation, verify, diff, history, serve |
+| [docs/api.md](docs/api.md) | Every HTTP endpoint, and the JSON each one returns |
+| [docs/api-versioning.md](docs/api-versioning.md) | What `/api/v1` guarantees: additive vs breaking changes and the deprecation process |
+| [docs/caching.md](docs/caching.md) | How the scanner caches the signals it consumes (StellarExpert directory and blocklist), and for how long |
 | [docs/asset-lists.md](docs/asset-lists.md) | Consuming SEP-0042 Stellar Asset Lists as a second curation source, and why listing is never a safety signal |
+| [docs/timestamps.md](docs/timestamps.md) | Observation timestamp semantics: which clock each stored time comes from, and what each one means |
+| [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
+| [docs/glossary.md](docs/glossary.md) | Every state Assay reports — severity, accountability, verdict state, `undetermined` — and the state each is most often confused with |
+| [docs/consumer-integration-research.md](docs/consumer-integration-research.md) | Which `get_safety` consumer has the strongest evidence for a reference integration, and why |
+
+### For verifiers
+
+Check an attestation, investigate a verdict, audit what Assay claims.
+
+| Document | What's in it |
+| --- | --- |
+| [docs/verifying.md](docs/verifying.md) | How a third party verifies a downloaded binary, then an attestation, end to end, without reading the source |
+| [docs/trust.md](docs/trust.md) | What you are trusting: verifiable facts vs. relayed claims, and consequence matrix |
+| [docs/severity-model.md](docs/severity-model.md) | The judgment layer: severity levels, the legitimate-use carve-out, and why |
+| [docs/severity-accountability.md](docs/severity-accountability.md) | Why severity and accountability are never blended into one score, and how every surface must present both |
+| [docs/temporal.md](docs/temporal.md) | The temporal trust model: what an attestation says about one instant, and why freshness is the caller's policy |
+| [docs/transitions.md](docs/transitions.md) | What changed between two observations: capability, severity, accountability and evidence movement |
+| [docs/history.md](docs/history.md) | The observation history API: what is retained, for how long, and what an empty history means |
+| [docs/differential.md](docs/differential.md) | Differential derivation: an independent re-derivation of ledger facts, compared against what the scanner produced |
+| [docs/debugging-a-verdict.md](docs/debugging-a-verdict.md) | A systematic procedure for investigating a surprising verdict back to its source |
+| [docs/fail-closed.md](docs/fail-closed.md) | Every place a failure could influence the answer, classified as fail-closed or not, with the evidence |
+| [docs/ever-escalated-marker.md](docs/ever-escalated-marker.md) | Design (not implemented): an on-chain record that closes the reputation/attribution threat class |
+| [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
+| [docs/offline-bundle.md](docs/offline-bundle.md) | Archiving the exact source bytes behind an attestation, and verifying them without a network |
+| [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
+| [docs/severity-rating-comparison.md](docs/severity-rating-comparison.md) | Dated comparison of Assay severity with StellarExpert's rating for the top-50 fixture and scanned sample |
+| [docs/wallet-clawback-survey.md](docs/wallet-clawback-survey.md) | What Freighter, LOBSTR, xBull, StellarX and Albedo warn a user about before adding a clawback-enabled trustline (surveyed 2026-10-20) |
+
+### For contributors
+
+Read or change the code, or review a design.
+
+| Document | What's in it |
+| --- | --- |
+| [docs/first-15-minutes.md](docs/first-15-minutes.md) | **Start here as a contributor:** clone, test, scan one asset, read its report against the glossary, run the eval, find a starter issue |
+| [docs/architecture.md](docs/architecture.md) | The Go scanner and the two Soroban contracts, and how the pieces fit together |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 | [docs/pipeline.md](docs/pipeline.md) | The full ledger-fact to on-chain-verdict path for a single asset |
+| [docs/attestation-run.md](docs/attestation-run.md) | Every asset scanned, what each check returned, and what the run exposed about the scanner |
+| [docs/attestation-writer.md](docs/attestation-writer.md) | Design (not implemented): the attestation writer pipeline, answering the open questions in #8 |
+| [docs/multi-attestor.md](docs/multi-attestor.md) | Design (for review): approaches to multi-attestor writes, answering #88 |
+| [docs/testing.md](docs/testing.md) | Package-level testing guide: which test belongs where, and how CI runs them |
+| [docs/mutation-catalogue.md](docs/mutation-catalogue.md) | The mutation catalogue and baseline: which mutations were applied by hand, and what the tests caught |
+| [docs/sep-asset-safety-attestation.md](docs/sep-asset-safety-attestation.md) | Draft SEP for the asset safety attestation interface |
+| [docs/sessions/2026-08-10-mvp-core.md](docs/sessions/2026-08-10-mvp-core.md) | Session log: empty repo to a working scanner, eval and contract |
+| [docs/sessions/2026-08-15-testnet-deployment.md](docs/sessions/2026-08-15-testnet-deployment.md) | Session log: the contract from passing local tests to live on testnet |
+| [docs/sessions/2026-09-17-audit-and-provenance.md](docs/sessions/2026-09-17-audit-and-provenance.md) | Session log: an integrity audit of what is merged and how to reproduce it |
+
+### For operators
+
+Run the scanner and the registry.
+
+| Document | What's in it |
+| --- | --- |
+| [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
+| [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
+| [docs/attester.md](docs/attester.md) | `assay-attester`: the keyless dry-run and the issuer watcher that run ahead of the attestation writer |
+| [docs/attestation-correction.md](docs/attestation-correction.md) | Runbook: treating a wrong attestation as an incident and correcting it |
+| [docs/source-outage.md](docs/source-outage.md) | Runbook: what to do when a scan reports an upstream source failure |
+| [docs/reproducibility-mismatch.md](docs/reproducibility-mismatch.md) | Runbook: the reproducibility job reports a mismatch |
+
+### Translations
+
+| Document | What's in it |
+| --- | --- |
 | [docs/i18n/](docs/i18n/README.md) | French and Spanish translations of the status section, glossary and integration guide; English is authoritative |
 
 ## Status
@@ -126,4 +186,3 @@ admission.
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
-- [Temporal Trust Model](docs/temporal.md)

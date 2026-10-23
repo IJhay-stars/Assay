@@ -145,7 +145,7 @@ eux-mêmes n'ont jamais été lus est [non évalué](#non-évalué), refusé par
 | Axe | Champ | Valeurs | Question à laquelle il répond |
 | --- | --- | --- | --- |
 | Sévérité | `Report.Severity`, `Report.Base` | `clear`, `low`, `medium`, `high`, `critical` (+ `unevaluated`, Go seulement) | Que peut faire l'émetteur au solde d'un détenteur ? |
-| Responsabilité | `Report.Accountability` | `unknown`, `unverified`, `verified` | Qui, s'il existe, revendique publiquement cet actif ? |
+| Responsabilité | `Report.Accountability`, `Report.AccountabilityReason` | `unknown`, `unverified`, `verified`, plus reason `fetch_failed`/`not_claimed`/`mismatch`/`no_home_domain` | Qui, s'il existe, revendique publiquement cet actif ? |
 | État du verdict | `Report.State` | `valid`, `unknown`, `stale` | Cette réponse est-elle complète et actuelle ? |
 | Complétude | `Report.Undetermined`, `undetermined_checks` | `true`/`false`, liste d'IDs de vérification | Toutes les sources ont-elles répondu ? |
 | Stockage on-chain | `get_safety` | `None`, `Some(Safety)`, (restauration d'archives) | Une affirmation tient-elle ? |
@@ -192,16 +192,21 @@ La responsabilité est rapportée à côté de la sévérité et jamais fondue d
 
 | Valeur | Produite par | Action du consommateur | Le plus souvent confondue avec |
 | --- | --- | --- | --- |
-| `unknown` | `sep1-domain` : l'émetteur n'annonce aucun `home_domain` | Personne n'a publiquement revendiqué l'actif. C'est une réponse définitive. | `unverified` |
-| `unverified` | `sep1-domain` : un `home_domain` existe mais la revendication réciproque a échoué ou le toml n'a pas résolu | Une revendication a été tentée et non réciproquée, ou illisible. | `unknown` |
-| `verified` | `sep1-domain` : le `stellar.toml` du domaine liste exactement ce code et cet émetteur | Une partie nommée a publié une revendication. Cela ne dit rien du pouvoir ou de l'honnêteté de l'émetteur. | `safe` |
+| `unknown` | `sep1-domain` : l'émetteur n'annonce aucun `home_domain` ; raison `no_home_domain` | Personne n'a publiquement revendiqué l'actif. C'est une réponse définitive. | `unverified` |
+| `unverified` | `sep1-domain` : un `home_domain` existe mais la revendication réciproque a échoué ou le toml n'a pas résolu ; raison `fetch_failed`, `not_claimed` ou `mismatch` | Une revendication a été tentée et non réciproquée, ou illisible. Lire `accountability_reason` pour distinguer un serveur web hors service d'une revendication refusée. | `unknown` |
+| `verified` | `sep1-domain` : le `stellar.toml` du domaine liste exactement ce code et cet émetteur ; pas de raison | Une partie nommée a publié une revendication. Cela ne dit rien du pouvoir ou de l'honnêteté de l'émetteur. | `safe` |
 
-`unverified` couvre délibérément deux faits différents — « le toml n'a pas
-résolu » et « il a résolu et n'a pas nommé cet actif » — parce que SEP-1 ne
-permet pas à un consommateur de les distinguer à partir du seul champ ; la
-distinction survit dans la preuve attribuée et le raisonnement
-([rapport d'attestation](../../attestation-run.md#sep1-domain)). Cela ne
-couvre **pas** « personne ne l'a revendiqué » : c'est `unknown`.
+`unverified` ne confond plus deux faits différents. « Le toml n'a pas résolu »
+et « il a résolu et n'a pas nommé cet actif » sont rapportés comme
+`accountability_reason: "fetch_failed"` et `accountability_reason: "not_claimed"`
+respectivement, afin qu'un consommateur basculant sur les champs JSON puisse
+distinguer un serveur web hors service d'une revendication refusée sans lire le
+texte de raisonnement. Cela ne couvre **pas** « personne ne l'a revendiqué » :
+c'est `unknown` avec la raison `no_home_domain`. Le champ
+`accountability_reason` est des métadonnées de rapport, pas une partie du
+préimage d'evidence haché ; la ligne `accountability` restitue toujours l'une
+des valeurs `unknown`, `unverified`, `verified` et l'encodage est inchangé
+([interface du contrat](../../contract-interface.md#report-fields-outside-the-preimage)).
 
 ## État du verdict — la réponse est-elle complète
 

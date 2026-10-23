@@ -85,6 +85,25 @@
          border-radius: 6px; padding: .8rem 1rem; margin-top: 1.5rem; }
   .err.banner { border-color: var(--medium); color: var(--medium); background: var(--panel); }
 
+  /* Degraded scan (undetermined). This is a different answer from a clean
+     one, not a footnote on it, so it gets its own panel and accent rather
+     than reusing the stale/error banner. */
+  .degraded {
+    border: 1px solid var(--medium); border-left: 4px solid var(--medium);
+    border-radius: 6px; padding: .9rem 1rem; margin: 1.5rem 0;
+    background: var(--panel);
+  }
+  .degraded .headline { display: block; color: var(--medium); font-weight: 700; }
+  .degraded .degraded-lead { margin: .35rem 0 0; }
+  .degraded .could-not { margin: .6rem 0 .15rem; font-weight: 600; }
+  .degraded ul.checks { margin: 0 0 0 1rem; padding: 0; }
+  .degraded ul.checks li { margin: .12rem 0; }
+  .degraded .floor-line { margin: .6rem 0 0; font-weight: 600; }
+
+  /* The severity card is marked too: a reader who skips the panel must still
+     see that the level below is a floor and not a complete verdict. */
+  .card.floor { border-style: dashed; border-color: var(--medium); }
+
   /* Observation history. An empty history, a single observation, and a
      truncated one are three different answers and are rendered distinctly. */
   .history { margin-top: 2rem; }
@@ -146,6 +165,17 @@ const ACC_NOTE = {
   unknown: 'The issuer advertises no domain to verify.',
 };
 
+// CHECK_LABEL says what each undetermined check was trying to establish, so a
+// reader who does not know the internal check IDs still learns what is missing.
+// Unknown IDs fall back to the ID itself rather than being dropped.
+const CHECK_LABEL = {
+  capability: 'the issuer authorization flags on the ledger',
+  reputation: 'StellarExpert curated listings and blocked domains',
+  'sep1-domain': 'the issuer stellar.toml',
+  mutability: 'whether the issuer flags can still change',
+  trustline: 'the holder trustline flags',
+};
+
 const LEVELS = ['clear', 'low', 'medium', 'high', 'critical'];
 
 // el builds a node and sets only textContent, so no issuer-controlled string
@@ -174,6 +204,33 @@ function safeURL(value) {
 }
 
 function note(text, cls) { return el('p', cls || 'note', text); }
+
+function checkLabel(id) {
+  const name = String(id);
+  const plain = CHECK_LABEL[name];
+  return plain ? name + ' (' + plain + ')' : name;
+}
+
+// undeterminedChecks returns the checks a degraded report named. Report shapes
+// from before the field existed simply have nothing to return: absent is not an
+// error, it just leaves the check unnamed. A non-array value is ignored rather
+// than iterated, so a malformed or older body cannot throw or render a string
+// one character at a time.
+function undeterminedChecks(rep) {
+  const raw = rep && rep.undetermined_checks;
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(id => typeof id === 'string' && id.trim() !== '');
+}
+
+// isUndetermined accepts any of the three signals the API has used over time.
+// The header predates the report field, and a named check with the boolean
+// missing is still incomplete, so every ambiguity resolves toward showing the
+// caveat — never toward letting a degraded scan look complete.
+function isUndetermined(rep, header) {
+  if (header === true) return true;
+  if (!rep) return false;
+  return rep.undetermined === true || undeterminedChecks(rep).length > 0;
+}
 
 function errorBox(title, detail, extra) {
   const box = el('div', 'err');
@@ -240,15 +297,10 @@ async function render(rep, undeterminedHeader, asset) {
     frag.append(b);
   }
 
-  if (rep.undetermined || undeterminedHeader) {
-    const b = el('div', 'err banner');
-    b.append(el('strong', null, 'Scan Degraded (Undetermined).'), document.createTextNode(
-      ' One or more external sources were unreachable. Findings may be incomplete.'));
-    b.append(note('This is signaled via the X-Assay-Undetermined header.'));
-    frag.append(b);
-  }
+  const degraded = isUndetermined(rep, undeterminedHeader);
+  if (degraded) frag.append(degradedPanel(rep));
 
-  frag.append(axes(rep));
+  frag.append(axes(rep, degraded));
   frag.append(el('h2', null, 'Per-mechanic reasoning'));
   frag.append(findings(rep));
   frag.append(await historySection(asset));
@@ -256,13 +308,51 @@ async function render(rep, undeterminedHeader, asset) {
   out.replaceChildren(frag);
 }
 
-function axes(rep) {
+// degradedPanel renders the undetermined state as its own answer: it names the
+// check that could not complete and says the severity below is a floor. A
+// reader who skips it still sees the floor marker on the severity card.
+function degradedPanel(rep) {
+  const checks = undeterminedChecks(rep);
+  const panel = el('section', 'degraded');
+
+  panel.append(el('strong', 'headline', 'Undetermined — this is not a clean result'));
+  panel.append(el('p', 'degraded-lead',
+    'At least one check could not complete, so this report is incomplete. ' +
+    'A missing answer is not a clean answer: a source that did not respond ' +
+    'could have hidden exactly the danger this scan exists to find.'));
+
+  panel.append(el('p', 'could-not', 'Could not complete:'));
+  if (checks.length) {
+    const ul = el('ul', 'checks');
+    for (const id of checks) ul.append(el('li', null, checkLabel(id)));
+    panel.append(ul);
+  } else {
+    panel.append(note('an unnamed check — this report did not name the check that failed.'));
+  }
+
+  panel.append(el('p', 'floor-line',
+    'The severity shown is a floor, not an answer: it is the least the checks ' +
+    'that did run establish, and a check that could not complete could only ' +
+    'add to it. Do not read this level as a complete verdict.'));
+
+  return panel;
+}
+
+function axes(rep, degraded) {
   const wrap = el('div', 'axes');
 
   const sevCard = el('div', 'card');
   sevCard.append(el('h2', null, 'Severity — issuer capability'));
   sevCard.append(el('div', 'level ' + sevClass(rep.severity), rep.severity));
   sevCard.append(note(SEV_NOTE[rep.severity] || ''));
+  if (degraded) {
+    sevCard.classList.add('floor');
+    const p = el('p', 'note floor-note');
+    p.append(el('strong', null, 'This level is a floor.'), document.createTextNode(
+      ' A check could not complete, so the issuer can do at least this much; ' +
+      'a source that did not answer could make the true level higher.'));
+    sevCard.append(p);
+  }
   if (rep.escalated) {
     const p = el('p', 'note');
     p.append(document.createTextNode('Escalated from '));

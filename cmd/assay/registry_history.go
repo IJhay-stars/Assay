@@ -327,11 +327,11 @@ func runRegistryHistory(args []string, d commandDeps) error {
 	registry := fs.String("contract", envOr("ASSAY_CONTRACT_ID", defaultRegistry), "registry contract id (env ASSAY_CONTRACT_ID)")
 	network := fs.String("network", envOr("ASSAY_NETWORK", "testnet"), "network used to derive the SAC id (env ASSAY_NETWORK)")
 	asJSON := fs.Bool("json", false, "print the history as JSON")
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("registry-history: %w", err)
+	if err := parseFlags(fs, args); err != nil {
+		return err
 	}
 	if fs.NArg() != 1 {
-		return fmt.Errorf("registry-history takes exactly one asset (CODE-ISSUER or a C... SAC address)")
+		return usagef("registry-history takes exactly one asset (CODE-ISSUER or a C... SAC address)")
 	}
 
 	sac := fs.Arg(0)

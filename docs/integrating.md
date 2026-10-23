@@ -30,7 +30,7 @@ So you are trusting the attester. Today that is one key. `evidence_hash` is what
 makes the trust checkable rather than absolute: it commits to the exact evidence
 the scanner read, and anyone can re-scan and recompute it. The complete
 statement of what the admin key can and cannot do is in [Trust boundary: the
-admin key](contract-interface.md#trust-boundary-the-admin-key).
+admin key](attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 
 For a complete breakdown of every party you are trusting (issuer, attester key,
 Horizon, and reputation providers) and the consequences if each is dishonest or
@@ -329,6 +329,42 @@ Submitting a `deposit` rather than simulating gives you the reason. Verified on
 transaction is submitted; the admitted path was exercised with a real deposit,
 recorded in [deployment.md](deployment.md).
 
+## What to show for each gate error
+
+The example gate refuses with one of five errors, and that error is what your
+end user ends up seeing, so the front end's wording is part of the gate. A
+failing call is rejected at simulation with `Error(Contract, #N)`. Map the
+number, not the message.
+
+The errors fall into two groups, and the UI must keep them apart:
+
+- **#1 and #2 mean the gate could not vouch for the asset.** Nothing bad is
+  known; nothing good is known either.
+- **#3 and #4 are findings about the issuer.**
+
+Showing #1 as "unsafe" overclaims; showing #4 as "not checked" hides a finding.
+
+| Error | What it means | Suggested wording | Do not say |
+| --- | --- | --- | --- |
+| `NotAttested` (#1) | No attestation exists for this asset. Assay has not checked it, or the check was refused because it could not complete ([glossary: not evaluated, could not check](glossary.md#the-three-things-unknown-can-mean)). | "This asset hasn't been checked, so this app won't accept it yet." | "unsafe", "scam", "blocked". Unattested is unknown, not bad ([glossary: SAFE](glossary.md#safe)). |
+| `AttestationStale` (#2) | An attestation exists but is older than this gate's freshness window. The issuer's flags may have changed since. | "This asset's last check is out of date (checked on DATE). It needs a fresh check before this app accepts it." Read `attested_at` for DATE. | "unsafe", or the old severity as if it were current. |
+| `IssuerCanTakeIt` (#3) | The issuer holds a power this gate refuses: `auth_clawback_enabled` (can take back balances) and/or `auth_revocable` (can freeze them). | Name the power from the flags. Clawback: "The issuer of this asset can take tokens back from holders." Freeze: "The issuer of this asset can freeze holders' balances." | "will take your funds", "scam". A power is a capability, not an intent ([glossary: UNSAFE](glossary.md#unsafe)). Many regulated assets hold these powers legitimately. |
+| `SeverityTooHigh` (#4) | Severity is above this gate's ceiling. Read `severity`: at `high` the issuer can confiscate; at `critical` a curated third-party source identified the issuer or its domain as malicious. | `high`: as for clawback in #3. `critical`: "A third-party source (SOURCE) has flagged this issuer as malicious." Use the source the report's evidence names, such as StellarExpert's blocklist. | "Assay says this is a scam". A curated listing is a consumed signal: attribute it, never present it as Assay's conclusion ([CONTRIBUTING ground rules](../CONTRIBUTING.md#ground-rules)). |
+| `InvalidPolicy` (#5) | The gate was constructed with a policy outside the supported range (`max_severity > 4`). It is a deployment error and says nothing about any asset. | Not an asset verdict. Show a generic "This app is misconfigured" and alert the developer. | Anything about the asset. |
+
+Two rules apply to every row:
+
+- **Admitted is not "safe".** A call that passes the gate has cleared *this
+  gate's* policy. Say "passed this app's checks", not "safe"
+  ([glossary: SAFE](glossary.md#safe)).
+- **One error hides the others.** The gate stops at the first failing rule, in
+  this order (`assay_gate::check_policy`): no attestation (#1), stale (#2),
+  ceiling (#4), mask (#3). A stale attestation of a clawback asset reports #2,
+  as `USDZ` does [above](#trying-it-against-the-live-deployment), and an asset
+  that trips both the ceiling and the mask reports #4. If your UI wants to name
+  the power, read `flags` from `get_safety` rather than inferring it from the
+  error number.
+
 ## Verifying an attestation yourself
 
 You do not have to take the stored severity on faith. `assay verify` automates the check by re-scanning the asset, recomputing the hash, reading the on-chain attestation, and reporting whether they agree:
@@ -470,6 +506,31 @@ processed ledger and cursor, and archive events yourself if you need a history
 longer than your RPC's window. The registry's own retention note is in
 [contract-interface.md](contract-interface.md#attestation-events).
 
+## Off-chain client: reading from a dApp front end
+
+Most consumers who inspect an asset before enabling a deposit button or showing asset security metadata live in a browser dApp or Node.js backend rather than in a smart contract.
+
+A tested JavaScript/TypeScript example using `@stellar/stellar-sdk` is available under [`examples/typescript-frontend/`](../examples/typescript-frontend):
+- **Simulation**: Uses `simulateTransaction` against Soroban RPC (`get_safety` and `is_safe`) so that reading costs nothing and needs no wallet signature or secret key.
+- **Fail-closed**: Decodes `None` (returned from RPC as `scvVoid`) into `null`, ensuring unattested assets are refused.
+- **Verification**: Can be tested read-only against the testnet registry via `npm run start`.
+
+```typescript
+import { RegistryReader } from './reader.js';
+
+const reader = new RegistryReader();
+const safety = await reader.getSafety(assetAddress);
+
+if (!safety) {
+  // Refuse: asset has no standing attestation in the registry
+  hideDepositButton();
+} else {
+  // Check policy: max severity 2, attestation within 24h
+  const admitted = await reader.isSafe(assetAddress, 2, 86400);
+  if (admitted) showDepositButton();
+}
+```
+
 ## Before you rely on this
 
 - It is on **testnet**, not pubnet.
@@ -478,7 +539,7 @@ longer than your RPC's window. The registry's own retention note is in
   contract refuses nearly every asset on the network.
 - **One key can write any attestation.** There is no multisig and no threshold
   of independent attesters yet. The complete statement of powers and limits is
-  in [Trust boundary: the admin key](contract-interface.md#trust-boundary-the-admin-key).
+  in [Trust boundary: the admin key](attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 - **Nothing refreshes the attestations.** They are exactly as fresh as their
   `attested_at`. Choose a `max_age_secs` you would actually accept.
 - Testnet is periodically reset, which removes these attestations. The live

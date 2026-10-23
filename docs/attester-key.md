@@ -205,7 +205,8 @@ says otherwise.
    very key you have declared compromised, so the attacker can submit it too,
    or overwrite your pending admin with their own before it is accepted. A
    handshake rotation is for a *planned* key change with a healthy admin, not
-   for a compromise. The compromised admin has no power over the new registry.
+   for a compromise (see [threat-model.md attack class 14](threat-model.md#14-permanent-takeover-via-the-pending-admin-window-transfer_admin)).
+   The compromised admin has no power over the new registry.
 4. **Leave the old registry in place and mark it superseded** in
    [deployment.md](deployment.md). It cannot be deleted or frozen from the
    outside; the protection for its remaining readers is the same

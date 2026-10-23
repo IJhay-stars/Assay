@@ -49,7 +49,7 @@ func newStubScanner(t *testing.T, cfg stubConfig) *scan.Scanner {
 						"asset_type":   "credit_alphanum4",
 						"asset_code":   "USDC",
 						"asset_issuer": scanIssuer,
-						"flags":        map[string]bool{},
+						"flags":        horizonFlagsStub,
 					}},
 				},
 			})
@@ -63,7 +63,7 @@ func newStubScanner(t *testing.T, cfg stubConfig) *scan.Scanner {
 				_ = json.NewEncoder(w).Encode(map[string]any{
 					"account_id":  scanIssuer,
 					"home_domain": cfg.homeDomain,
-					"flags":       map[string]bool{},
+					"flags":       horizonFlagsStub,
 				})
 				return
 			}

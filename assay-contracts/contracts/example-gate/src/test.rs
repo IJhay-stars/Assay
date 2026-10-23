@@ -137,6 +137,44 @@ fn stale_attestation_is_refused() {
     );
 }
 
+/// Boundary tests for attestation freshness: the window is inclusive at the
+/// boundary. At exactly `attested_at + MAX_ATTESTATION_AGE` (+86,400s), the
+/// attestation is still fresh and deposit succeeds. At `attested_at +
+/// MAX_ATTESTATION_AGE + 1` (+86,401s), it is stale and refused.
+#[test]
+fn attestation_freshness_boundary_exact_and_plus_one() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    let user = Address::generate(&f.env);
+    // Attestation created at ledger timestamp 1_000_000
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    // Case 1: Exactly on the boundary (attested_at + MAX_ATTESTATION_AGE, +86400s).
+    // Age is exactly MAX_ATTESTATION_AGE: now - attested_at == 86400 <= 86400, so admitted.
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE);
+
+    assert!(f.gate.would_admit(&asset));
+    f.gate.deposit(&asset, &user, &100);
+    assert_eq!(f.gate.balance(&asset, &user), 100);
+
+    // Case 2: Exactly one second past the boundary (attested_at + MAX_ATTESTATION_AGE + 1, +86401s).
+    // Age exceeds MAX_ATTESTATION_AGE: now - attested_at == 86401 > 86400, so refused as stale.
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE + 1);
+
+    assert!(!f.gate.would_admit(&asset));
+    assert_eq!(
+        f.gate.try_deposit(&asset, &user, &50),
+        Err(Ok(Error::AttestationStale))
+    );
+    // Balance remains unchanged from before the stale deposit attempt.
+    assert_eq!(f.gate.balance(&asset, &user), 100);
+}
+
 /// A re-attestation must be able to close a gate that was previously open.
 #[test]
 fn re_attestation_can_revoke_admission() {
@@ -232,10 +270,103 @@ fn fail_closed_every_non_affirmative_state_refused_without_freshness() {
         .attest(&clean, &SEVERITY_CLEAR, &0, &hash(&f.env));
 
     assert!(!f.gate.would_admit(&unattested));
+    assert_eq!(
+        f.gate.try_admission(&unattested),
+        Err(Ok(Error::NotAttested))
+    );
     assert!(!f.gate.would_admit(&critical));
+    assert_eq!(
+        f.gate.try_admission(&critical),
+        Err(Ok(Error::SeverityTooHigh))
+    );
     assert!(!f.gate.would_admit(&confiscatable));
+    assert_eq!(
+        f.gate.try_admission(&confiscatable),
+        Err(Ok(Error::SeverityTooHigh))
+    );
     assert!(!f.gate.would_admit(&freezable));
+    assert_eq!(
+        f.gate.try_admission(&freezable),
+        Err(Ok(Error::IssuerCanTakeIt))
+    );
     assert!(f.gate.would_admit(&clean));
+    assert_eq!(f.gate.try_admission(&clean), Ok(Ok(())));
+}
+
+// ---------------------------------------------------------------------------
+// Admission tests verifying every refusal reason
+// ---------------------------------------------------------------------------
+
+#[test]
+fn admission_returns_ok_for_admitted_asset() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    assert_eq!(f.gate.try_admission(&asset), Ok(Ok(())));
+    assert!(f.gate.would_admit(&asset));
+}
+
+#[test]
+fn admission_returns_not_attested() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+
+    assert_eq!(f.gate.try_admission(&asset), Err(Ok(Error::NotAttested)));
+    assert!(!f.gate.would_admit(&asset));
+}
+
+#[test]
+fn admission_returns_attestation_stale() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CLEAR, &0, &hash(&f.env));
+
+    f.env
+        .ledger()
+        .set_timestamp(1_000_000 + MAX_ATTESTATION_AGE + 1);
+
+    assert_eq!(
+        f.gate.try_admission(&asset),
+        Err(Ok(Error::AttestationStale))
+    );
+    assert!(!f.gate.would_admit(&asset));
+}
+
+#[test]
+fn admission_returns_severity_too_high() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    f.registry
+        .attest(&asset, &SEVERITY_CRITICAL, &0, &hash(&f.env));
+
+    assert_eq!(
+        f.gate.try_admission(&asset),
+        Err(Ok(Error::SeverityTooHigh))
+    );
+    assert!(!f.gate.would_admit(&asset));
+}
+
+#[test]
+fn admission_returns_issuer_can_take_it() {
+    let f = setup();
+    let asset = Address::generate(&f.env);
+    // Severity is medium (2), which passes the default ceiling (2).
+    // The refused mechanics flag MECH_AUTH_REVOCABLE triggers IssuerCanTakeIt.
+    f.registry.attest(
+        &asset,
+        &SEVERITY_MEDIUM,
+        &MECH_AUTH_REVOCABLE,
+        &hash(&f.env),
+    );
+
+    assert_eq!(
+        f.gate.try_admission(&asset),
+        Err(Ok(Error::IssuerCanTakeIt))
+    );
+    assert!(!f.gate.would_admit(&asset));
 }
 
 // ---------------------------------------------------------------------------
