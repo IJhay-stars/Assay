@@ -39,7 +39,7 @@ stop writing.
 already assumes.** The registry's `attest` requires the admin's authorization,
 and there is no threshold mechanism to use — building one is
 [#88](https://github.com/use-assay/Assay/issues/88) and needs a stated threat
-model ([#52](https://github.com/use-assay/Assay/issues/52)) before a scheme
+model ([#30](https://github.com/use-assay/Assay/issues/30)) before a scheme
 can be chosen. This is a limitation, stated as such in
 [contract-interface.md](contract-interface.md#not-done-yet), and it caps what
 the first pipeline is *for*: it can make the testnet registry useful and
@@ -146,12 +146,20 @@ coverage theatre at best. The list starts as the ten assets in
 scan corpus grew — each addition chosen, scanned, and recorded before it is
 attested.
 
-Costs, verified 2026-09-25: testnet inclusion fees sit at the 100-stroop
-network minimum (p95 200 stroops) via `getFeeStats`; the resource fee for a
-one-persistent-entry write adds a fraction of an XLM at most. Ten assets
-re-attested daily is on the order of a few XLM **per year** — fees do not
-constrain the design, which is why [freshness.md](freshness.md) can recommend
-a daily schedule plus event-driven re-attestation without a budget argument.
+Costs, measured on testnet twice over: on 2026-09-25 inclusion fees sat at the
+100-stroop network minimum (p95 200 stroops) via `getFeeStats`, and that
+measurement covered inclusion fees only. What an attestation actually costs
+is persistent rent, and that was measured on 2026-10-20 against submitted
+transactions, recorded with their hashes in
+[deployment.md](deployment.md#what-the-rent-costs-measured-2026-10-20): the
+first attestation of an asset costs 5 765 728 stroops (~0.58 XLM), almost all
+of it the extension to the network maximum rather than the write, and
+re-attesting an asset whose entry is already at the maximum costs between
+9 924 and 85 195 stroops. Ten assets re-attested daily is therefore a few to
+a few tens of XLM **per year** in the steady state, plus half an XLM for each
+asset newly added to the list — fees do not constrain the design, which is why
+[freshness.md](freshness.md) can recommend a daily schedule plus event-driven
+re-attestation without a budget argument.
 That fee argument means batching is not required for the list above. It is
 available anyway, because the ceiling it lifts is not the fee one. `attest_many`
 (see [contract-interface.md](contract-interface.md#attest_many-many-attestations-in-one-transaction))
@@ -186,11 +194,79 @@ re-attesting. Three mechanisms, in increasing order of honesty:
    writes to the wrong contract ID.
 
 The runbook for these alerts is [#115](https://github.com/use-assay/Assay/issues/115);
-this design specifies what is observable, not who gets paged.
+source-specific outage response is in [source-outage.md](source-outage.md).
+This design specifies what is observable, not who gets paged.
+
+## The run record
+
+Mechanism 1 above, specified. Every run writes one JSON document; `make attest`
+already writes one per invocation (`scripts/attest-run.sh`, records under
+`attest-runs/`, which is git-ignored and is the operator's to archive).
+
+```json
+{
+  "schema": "assay-attestation-run-v1",
+  "run_id": "20261022T101500Z",
+  "started_at": "2026-10-22T10:15:00Z",
+  "finished_at": "2026-10-22T10:15:12Z",
+  "mode": "manual",
+  "network": "testnet",
+  "contract_id": "CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73",
+  "source_account": "assay-attester",
+  "commit": "c831b6b…",
+  "entries": [
+    {
+      "asset": "USDC-GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN",
+      "sac": "CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY7",
+      "status": "attested",
+      "severity": 2,
+      "flags": 18,
+      "evidence_hash": "6a9e…a294",
+      "tx_hash": "3f1c…"
+    }
+  ]
+}
+```
+
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `schema` | string | Always `assay-attestation-run-v1`. A change to this document's shape bumps it. |
+| `run_id` | string | UTC start time, `YYYYMMDDTHHMMSSZ`. Unique per run on one host. |
+| `started_at`, `finished_at` | string | RFC 3339 UTC. |
+| `mode` | string | `manual` (`make attest`) or, once the pipeline exists, `scheduled`. |
+| `network` | string | The registry's network, as passed to `stellar --network`. |
+| `contract_id` | string | The registry written to. Checking it against [deployment.md](deployment.md) catches a run against the wrong contract. |
+| `source_account` | string | The signing identity's name. Never a secret: no seed or key material appears anywhere in a record. |
+| `commit` | string or null | The repository commit the run was made from, when known. |
+| `entries` | array, **at least one** | One per asset, in run order. |
+
+Each entry:
+
+| Field | Present when | Meaning |
+| --- | --- | --- |
+| `asset` | always | `CODE-ISSUER`. |
+| `sac` | when derivable | The SAC address for the registry's network, even for a refused or errored asset, so the record names the address that was not written. |
+| `status` | always | Exactly one of `attested`, `refused`, `errored`. |
+| `severity`, `flags`, `evidence_hash` | the arguments were derived | The values sent (or that would have been sent) to `attest`. |
+| `tx_hash` | `attested` | The submitted transaction. `null` only if the CLI reported success without printing a hash: recorded as such, never guessed. |
+| `reason` | `refused`, `errored` | **Verbatim.** For `refused`, `attest`'s own refusal (undetermined, unevaluated, stale, or the confiscation invariant). For `errored`, the error from the scan, the SAC derivation or the submission. |
+
+The rules, which `scripts/test-attest-run.sh` pins:
+
+- **An empty run is an error.** A run that would produce zero entries exits 2
+  and writes no record, because a record with no entries cannot say what
+  happened to anything.
+- **`refused` is not `errored`.** A refusal is the pipeline working: the report
+  could not honestly be attested. An error means the run could not tell.
+- **The record is written whatever happened.** A run that was refused or failed
+  writes the same record, so the absence of a record is itself the signal that
+  a run did not happen.
+- **Exit codes follow the dry-run's:** 0 if everything was attested, 1 if
+  anything was refused and nothing errored, 2 if anything errored.
 
 ## Dry-run mode
 
-**Specified: `assay-attester --dry-run`.** With the flag set, the pipeline
+**Specified, and implemented in [`cmd/assay-attester`](attester.md): `assay-attester --dry-run`.** With the flag set, the pipeline
 performs the full path — scan, derive `Params` via `FromReport`, including the
 confiscation-invariant and undetermined re-checks, derive the SAC address for
 the target network — and then **stops before signing**. It prints, per asset,
@@ -218,6 +294,10 @@ cmd/assay-attester
   --once               one pass, then exit (the unit schedulers invoke)
   --watch              issuer watcher for event-driven re-attestation
 ```
+
+`--config`, `--dry-run`, `--once` and a read-only `--watch` (it detects and
+reports flag changes; it does not re-attest) are implemented; see
+[attester.md](attester.md). Signing is not.
 
 Per asset, one pass is: `scan` → `mechanics` report → `attest.FromReport` →
 (if unchanged evidence-hash **and** still fresh per
@@ -261,7 +341,7 @@ compromised it.
   control. A consumer that gates *without* verifying hashes is still fully
   exposed to a malicious writer.
 - *It does not survive a scanner downgrade*
-  ([#54](https://github.com/use-assay/Assay/issues/54)). If the attacker
+  ([#104](https://github.com/use-assay/Assay/issues/104)). If the attacker
   controls which code runs, the hash is internally consistent with whatever
   the compromised scanner concluded. Version binding
   ([#40](https://github.com/use-assay/Assay/issues/40)) and check-set binding
@@ -279,7 +359,7 @@ compromised it.
 testnet pipeline demonstrates and exercises the machinery. It does not make
 the registry trustworthy; that requires the multi-attestor work
 ([#88](https://github.com/use-assay/Assay/issues/88)) behind a signed threat
-model ([#52](https://github.com/use-assay/Assay/issues/52)). This document
+model ([#30](https://github.com/use-assay/Assay/issues/30)). This document
 asks for maintainer sign-off on exactly that scope boundary.
 
 ## Verified against live surfaces, 2026-09-25
@@ -291,15 +371,18 @@ asks for maintainer sign-off on exactly that scope boundary.
   which is the correct default for `attest` (it always writes) and the reason
   reads use `--send=no` explicitly.
 - Testnet RPC `getFeeStats`: inclusion fee mode 100 stroops, p95 200 stroops.
-  Fee posture for the daily schedule is therefore negligible; no batching or
-  fee-auction machinery is designed in.
+  That measurement covered inclusion fees only; the persistent rent an
+  `attest` actually pays was measured on 2026-10-20 and is recorded in
+  [deployment.md](deployment.md#what-the-rent-costs-measured-2026-10-20).
+  Neither constrains the daily schedule, so no batching or fee-auction
+  machinery is designed in.
 - CAP-0035 re-read from `stellar/stellar-protocol@master`: clawback
   authorization is fixed at trustline creation
   (`AUTH_CLAWBACK_ENABLED_FLAG` "must be set when a trustline is created";
   `SetTrustLineFlagsOp` can unset `TRUSTLINE_CLAWBACK_ENABLED_FLAG` but cannot
   add it retroactively), so a *newly-set* issuer clawback flag does not reach
   existing trustlines. This is the fact
-  [freshness.md](freshness.md#the-exposure-window-stated-honestly) is built
+  [freshness.md](freshness.md#recommended-windows) is built
   on. Confirmed against both the live pubnet and testnet ledgers (~5 s close
   cadence, 2026-09-25) that Horizon serves ledger state in real time.
 
@@ -312,7 +395,7 @@ asks for maintainer sign-off on exactly that scope boundary.
   key custody ([#150](https://github.com/use-assay/Assay/issues/150), see
   [attester-key.md](attester-key.md)),
   the re-attestation runbook
-  ([#115](https://github.com/use-assay/Assay/issues/115)).
+  ([#145](https://github.com/use-assay/Assay/issues/145)).
 - Whether `undetermined` belongs in the preimage
   ([#43](https://github.com/use-assay/Assay/issues/43)) — irrelevant here,
   because undetermined reports are refused before a preimage would be hashed

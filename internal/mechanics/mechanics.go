@@ -179,7 +179,12 @@ type Finding struct {
 	MechanicNames []string `json:"mechanics"`
 	// Accountability is set only by the check that establishes it.
 	Accountability *Accountability `json:"accountability,omitempty"`
-	Evidence       []Evidence      `json:"evidence"`
+	// AccountabilityReason classifies why the accountability verdict was
+	// reached, so consumers can distinguish "could not fetch" from "fetched
+	// but not claimed" from JSON alone. Absent when the check did not
+	// classify the verdict (for example a verified claim).
+	AccountabilityReason *AccountabilityReason `json:"accountability_reason,omitempty"`
+	Evidence             []Evidence            `json:"evidence"`
 }
 
 // Subject is the pre-fetched state a check reasons over. Checks must not reach
@@ -413,6 +418,10 @@ type Report struct {
 
 	// Accountability is reported alongside severity, never folded into it.
 	Accountability Accountability `json:"accountability"`
+	// AccountabilityReason classifies why the accountability verdict was
+	// reached. It is report metadata, not part of the hashed evidence
+	// preimage; see docs/contract-interface.md for the encoding decision.
+	AccountabilityReason *AccountabilityReason `json:"accountability_reason,omitempty"`
 
 	// State is the overall verdict state of the report:
 	//   - "valid": a fresh, complete verdict.
@@ -611,6 +620,9 @@ func (e *Engine) Run(ctx context.Context, s *Subject) (*Report, error) {
 
 		if f.Accountability != nil {
 			rep.Accountability = *f.Accountability
+		}
+		if f.AccountabilityReason != nil {
+			rep.AccountabilityReason = f.AccountabilityReason
 		}
 		// The escalation invariant, enforced here rather than left as
 		// convention: a finding marked Escalation may raise the level and set

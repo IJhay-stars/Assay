@@ -77,6 +77,7 @@ Call `get_safety`, run the binary, consume the API.
 | [docs/timestamps.md](docs/timestamps.md) | Observation timestamp semantics: which clock each stored time comes from, and what each one means |
 | [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
 | [docs/glossary.md](docs/glossary.md) | Every state Assay reports — severity, accountability, verdict state, `undetermined` — and the state each is most often confused with |
+| [docs/consumer-integration-research.md](docs/consumer-integration-research.md) | Which `get_safety` consumer has the strongest evidence for a reference integration, and why |
 
 ### For verifiers
 
@@ -98,6 +99,7 @@ Check an attestation, investigate a verdict, audit what Assay claims.
 | [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
 | [docs/offline-bundle.md](docs/offline-bundle.md) | Archiving the exact source bytes behind an attestation, and verifying them without a network |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
+| [docs/severity-rating-comparison.md](docs/severity-rating-comparison.md) | Dated comparison of Assay severity with StellarExpert's rating for the top-50 fixture and scanned sample |
 | [docs/wallet-clawback-survey.md](docs/wallet-clawback-survey.md) | What Freighter, LOBSTR, xBull, StellarX and Albedo warn a user about before adding a clawback-enabled trustline (surveyed 2026-10-20) |
 
 ### For contributors
@@ -106,6 +108,7 @@ Read or change the code, or review a design.
 
 | Document | What's in it |
 | --- | --- |
+| [docs/first-15-minutes.md](docs/first-15-minutes.md) | **Start here as a contributor:** clone, test, scan one asset, read its report against the glossary, run the eval, find a starter issue |
 | [docs/architecture.md](docs/architecture.md) | The Go scanner and the two Soroban contracts, and how the pieces fit together |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
 | [docs/pipeline.md](docs/pipeline.md) | The full ledger-fact to on-chain-verdict path for a single asset |
@@ -127,6 +130,10 @@ Run the scanner and the registry.
 | --- | --- |
 | [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
 | [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
+| [docs/attester.md](docs/attester.md) | `assay-attester`: the keyless dry-run and the issuer watcher that run ahead of the attestation writer |
+| [docs/attestation-correction.md](docs/attestation-correction.md) | Runbook: treating a wrong attestation as an incident and correcting it |
+| [docs/source-outage.md](docs/source-outage.md) | Runbook: what to do when a scan reports an upstream source failure |
+| [docs/reproducibility-mismatch.md](docs/reproducibility-mismatch.md) | Runbook: the reproducibility job reports a mismatch |
 
 ### Translations
 

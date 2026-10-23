@@ -26,6 +26,15 @@ import (
 
 const rrIssuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
 
+// horizonFlagsStub is the flags object a real Horizon record always carries:
+// all four authorization flags.
+var horizonFlagsStub = map[string]bool{
+	"auth_required":         false,
+	"auth_revocable":        false,
+	"auth_immutable":        false,
+	"auth_clawback_enabled": false,
+}
+
 // rrSources stands up the two upstreams a no-home-domain scan actually
 // fetches: Horizon (asset record, issuer account) and the StellarExpert
 // directory. With no home_domain the stellar.toml and blocklist fetches are
@@ -44,7 +53,14 @@ func rrSources(t *testing.T) (*httptest.Server, *httptest.Server) {
 						"asset_type":   "credit_alphanum4",
 						"asset_code":   "USDC",
 						"asset_issuer": rrIssuer,
-						"flags":        map[string]bool{},
+						// The complete flags object a real Horizon record always
+						// carries; an empty {} is now a decode error (#290).
+						"flags": map[string]bool{
+							"auth_required":         false,
+							"auth_revocable":        false,
+							"auth_immutable":        false,
+							"auth_clawback_enabled": false,
+						},
 					}},
 				},
 			})
@@ -52,7 +68,7 @@ func rrSources(t *testing.T) (*httptest.Server, *httptest.Server) {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"account_id":  rrIssuer,
 				"home_domain": "",
-				"flags":       map[string]bool{},
+				"flags":       horizonFlagsStub,
 			})
 		default:
 			http.NotFound(w, r)

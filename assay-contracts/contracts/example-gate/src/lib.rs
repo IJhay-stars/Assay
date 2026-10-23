@@ -69,6 +69,12 @@ pub const DEFAULT_MAX_SEVERITY: u32 = MAX_SEVERITY;
 
 /// How stale an attestation may be before this gate stops trusting it.
 ///
+/// Freshness is inclusive at the boundary: an attestation is trusted while
+/// `now - attested_at <= MAX_ATTESTATION_AGE` (strictly stale when
+/// `now - attested_at > MAX_ATTESTATION_AGE`). An attestation evaluated at
+/// exactly `attested_at + MAX_ATTESTATION_AGE` (86,400s) is fresh and admitted;
+/// at `attested_at + MAX_ATTESTATION_AGE + 1` (86,401s) it is stale and refused.
+///
 /// Twenty-four hours is this contract's policy, not Assay's. The registry
 /// exposes `attested_at` and takes the tolerance as a parameter precisely
 /// because a deposit gate and a large settlement should not be forced to agree.
@@ -214,10 +220,18 @@ impl ExampleGate {
 
     /// Reports whether [`Self::deposit`] would admit this asset right now.
     ///
-    /// Exposed so a client can show the reason before spending a fee on a
-    /// transaction that would revert.
+    /// Returns `Ok(())` if the asset meets policy, or `Err(Error)` with the
+    /// specific refusal reason if it does not.
+    pub fn admission(env: Env, asset: Address) -> Result<(), Error> {
+        Self::assert_safe(&env, &asset)
+    }
+
+    /// Reports whether [`Self::deposit`] would admit this asset right now.
+    ///
+    /// Kept for backward compatibility. Prefer [`Self::admission`] to obtain
+    /// the refusal reason without submitting a transaction that reverts.
     pub fn would_admit(env: Env, asset: Address) -> bool {
-        Self::assert_safe(&env, &asset).is_ok()
+        Self::admission(env, asset).is_ok()
     }
 
     pub fn balance(env: Env, asset: Address, holder: Address) -> i128 {

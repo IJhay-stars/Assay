@@ -2,6 +2,8 @@
 
 This document traces a single asset from raw ledger facts through every check, aggregation, encoding, and on-chain decision. It names the file and function responsible for each stage, and states exactly what information is preserved and what is intentionally discarded at the boundaries.
 
+Refer to `architecture.md` for the package-level map of how all the pieces fit together.
+
 The asset is `DOGE-GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P`. It is the most instructive example because its pure-mechanics severity is 0 (Clear) but its final severity is 4 (Critical), demonstrating the escalation path.
 
 ## 1. Retrieval

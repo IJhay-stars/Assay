@@ -16,8 +16,10 @@ import (
 func writeMinimalSubject(t *testing.T, dir string, extra map[string]string) {
 	t.Helper()
 	files := map[string]string{
-		"asset.json":   `{"asset_code":"DOGE","asset_issuer":"GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P"}`,
-		"account.json": `{"account_id":"GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P","home_domain":"darkpool.digital"}`,
+		// The complete flags object a real Horizon record always carries; an
+		// empty or absent one is now a decode error (#290).
+		"asset.json":   `{"asset_code":"DOGE","asset_issuer":"GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P","flags":{"auth_required":false,"auth_revocable":false,"auth_immutable":false,"auth_clawback_enabled":false}}`,
+		"account.json": `{"account_id":"GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P","home_domain":"darkpool.digital","flags":{"auth_required":false,"auth_revocable":false,"auth_immutable":false,"auth_clawback_enabled":false}}`,
 	}
 	for name, body := range extra {
 		files[name] = body

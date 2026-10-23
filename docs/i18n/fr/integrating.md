@@ -44,7 +44,7 @@ Vous faites donc confiance à l'attestateur. Aujourd'hui, c'est une seule clé.
 il engage exactement la preuve que le scanner a lue, et quiconque peut rescanner
 et le recalculer. L'énoncé complet de ce que la clé d'administration peut et ne
 peut pas faire se trouve dans [Frontière de confiance : la clé
-d'administration](../../contract-interface.md#trust-boundary-the-admin-key).
+d'administration](../../attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 
 Pour le détail de chaque partie à laquelle vous faites confiance (émetteur, clé
 d'attestateur, Horizon et fournisseurs de réputation) et les conséquences si
@@ -517,7 +517,7 @@ dans
 - **Une clé peut écrire n'importe quelle attestation.** Il n'y a ni multisig ni
   seuil d'attestateurs indépendants pour l'instant. L'énoncé complet des
   pouvoirs et limites est dans [Frontière de confiance : la clé
-  d'administration](../../contract-interface.md#trust-boundary-the-admin-key).
+  d'administration](../../attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 - **Rien ne rafraîchit les attestations.** Elles sont exactement aussi fraîches
   que leur `attested_at`. Choisissez un `max_age_secs` que vous accepteriez
   réellement.

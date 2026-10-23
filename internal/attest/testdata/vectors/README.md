@@ -11,6 +11,11 @@ equals the `evidence_hash` recorded on chain and in `docs/attestation-run.md`
 (AQUA tx `1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f`,
 USDC tx `9869957e510ac6cb9ba4e5ffaff66ad0286e420e824efc0095d9e578be37564e`,
 USDZ tx `069d519fa20c472bbc3756291307fb30719219903c1e62a27b4967c0b07ecfd6`).
+Their full digests are AQUA
+`688453bd22e9b694b9c70659d37526bdae18944645542642008e9d961461a4a9`, USDC
+`e7fc765d396de672a85c1b7fe76f67b05a17ad0798167748b285df020ed790bd` and USDZ
+`ca9b13a66f3a0a4b43d66dea29a505658447e08eee200d2bdb5e66aa1065fb4d`; `vectors.json`
+pins each digest with its transaction and deployment-table asset.
 `onchain_test.go` pins those three digests as literal constants, so a vector
 regenerated from whatever the encoder emits fails even if its `.digest` file is
 rewritten to match.

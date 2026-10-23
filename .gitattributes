@@ -2,3 +2,8 @@
 # translate their line endings, or a Windows clone derives a different
 # evidence_hash than the committed digest.
 internal/attest/testdata/vectors/*.preimage -text
+
+# The golden scan response is compared byte-for-byte by the golden test in
+# internal/api: checkout must not translate its line endings, or a Windows
+# clone fails the comparison on formatting alone.
+internal/api/testdata/*.json text eol=lf

@@ -58,13 +58,14 @@ jobs:
         working-directory: assay-contracts
         run: rustup toolchain install
 
-      # Local mode holds the passphrase and RPC endpoint the fixture attestor
-      # binds and the script uses. The action waits until RPC and friendbot are
-      # healthy before the next step runs.
+      # Use protocol 28 for the Soroban SDK 28 contracts and keep Quickstart
+      # pinned so its Core/RPC versions cannot drift independently.
       - name: start local Stellar network
         uses: stellar/quickstart@main
         with:
+          tag: v676-b1505.1-latest
           network: local
+          protocol_version: "28"
           enable: core,rpc,horizon
           enable_logs: "false"
 
