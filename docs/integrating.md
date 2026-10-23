@@ -506,6 +506,31 @@ processed ledger and cursor, and archive events yourself if you need a history
 longer than your RPC's window. The registry's own retention note is in
 [contract-interface.md](contract-interface.md#attestation-events).
 
+## Off-chain client: reading from a dApp front end
+
+Most consumers who inspect an asset before enabling a deposit button or showing asset security metadata live in a browser dApp or Node.js backend rather than in a smart contract.
+
+A tested JavaScript/TypeScript example using `@stellar/stellar-sdk` is available under [`examples/typescript-frontend/`](../examples/typescript-frontend):
+- **Simulation**: Uses `simulateTransaction` against Soroban RPC (`get_safety` and `is_safe`) so that reading costs nothing and needs no wallet signature or secret key.
+- **Fail-closed**: Decodes `None` (returned from RPC as `scvVoid`) into `null`, ensuring unattested assets are refused.
+- **Verification**: Can be tested read-only against the testnet registry via `npm run start`.
+
+```typescript
+import { RegistryReader } from './reader.js';
+
+const reader = new RegistryReader();
+const safety = await reader.getSafety(assetAddress);
+
+if (!safety) {
+  // Refuse: asset has no standing attestation in the registry
+  hideDepositButton();
+} else {
+  // Check policy: max severity 2, attestation within 24h
+  const admitted = await reader.isSafe(assetAddress, 2, 86400);
+  if (admitted) showDepositButton();
+}
+```
+
 ## Before you rely on this
 
 - It is on **testnet**, not pubnet.

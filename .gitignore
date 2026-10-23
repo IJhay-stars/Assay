@@ -21,5 +21,9 @@ go-test.log
 # Logs
 *.log
 
+# Node.js
+node_modules/
+/examples/*/dist/
+
 # Attestation run records written by `make attest`; the operator archives them
 /attest-runs/

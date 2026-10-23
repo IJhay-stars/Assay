@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -16,6 +17,7 @@ import (
 	"github.com/use-assay/assay/internal/differential"
 	"github.com/use-assay/assay/internal/horizon"
 	"github.com/use-assay/assay/internal/mechanics"
+	"github.com/use-assay/assay/internal/registry"
 	"github.com/use-assay/assay/internal/scan"
 )
 
@@ -238,18 +240,22 @@ func firstLineOf(s string) string {
 }
 
 // stellarRegistryReader is the production registryReader: it derives the
-// asset's SAC id and simulates get_safety through the stellar CLI, exactly as
-// `make read` does. Simulation rather than submission means reading costs
-// nothing and needs no signature. CONTRACT_ID / NETWORK come from the
-// environment with the same defaults as the Makefile.
+// asset's SAC id and reads get_safety through Soroban RPC simulation using
+// the internal/registry client, falling back to stellar CLI if necessary.
+// CONTRACT_ID / NETWORK / RPC_URL come from the environment with the same
+// defaults as the Makefile.
 func stellarRegistryReader(asset mechanics.Asset) (*OnChainSafety, error) {
 	contract := os.Getenv("ASSAY_CONTRACT_ID")
 	if contract == "" {
-		contract = "CBK4FBIHMDTXCUPE4E3ZDVSFJSCY5FJETTKNIQPN4LFJIKKIBLKIXQ73"
+		contract = registry.DefaultContractID
 	}
 	network := os.Getenv("ASSAY_NETWORK")
 	if network == "" {
 		network = "testnet"
+	}
+	rpcURL := os.Getenv("ASSAY_RPC_URL")
+	if rpcURL == "" {
+		rpcURL = registry.DefaultRPCURL
 	}
 
 	sac, err := exec.Command("stellar", "contract", "id", "asset",
@@ -257,30 +263,29 @@ func stellarRegistryReader(asset mechanics.Asset) (*OnChainSafety, error) {
 	if err != nil {
 		return nil, fmt.Errorf("derive SAC id: %w", err)
 	}
-	out, err := exec.Command("stellar", "contract", "invoke",
-		"--id", contract,
-		"--source-account", "assay-attester",
-		"--network", network,
-		"--send=no",
-		"--", "get_safety", "--asset", strings.TrimSpace(string(sac)),
-	).Output()
+	sacStr := strings.TrimSpace(string(sac))
+
+	client := registry.New(rpcURL, contract)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	s, err := client.GetSafety(ctx, sacStr)
 	if err != nil {
+		if errors.Is(err, registry.ErrNotAttested) {
+			return nil, nil
+		}
 		return nil, fmt.Errorf("invoke get_safety: %w", err)
 	}
-
-	// The CLI prints the Option as either `null` (absent) or the Safety JSON.
-	var raw *OnChainSafety
-	if err := json.Unmarshal(bytesOr(out), &raw); err != nil {
-		return nil, fmt.Errorf("parse get_safety output: %w", err)
+	if s == nil {
+		return nil, nil
 	}
-	return raw, nil
-}
 
-func bytesOr(b []byte) []byte {
-	if len(strings.TrimSpace(string(b))) == 0 {
-		return []byte("null")
-	}
-	return b
+	return &OnChainSafety{
+		Severity:     s.Severity,
+		Flags:        s.Flags,
+		EvidenceHash: s.EvidenceHash,
+		AttestedAt:   int64(s.AttestedAt),
+	}, nil
 }
 
 // differentialResult re-reads the issuer's flags through Soroban RPC and
