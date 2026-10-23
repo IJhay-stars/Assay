@@ -58,18 +58,32 @@ carries an explicit, evaluated position on legitimate clawback use. See
 
 | Document | What's in it |
 | --- | --- |
-| [docs/cli.md](docs/cli.md) | The `assay` binary: scan, attestation, history, serve |
+| [docs/first-15-minutes.md](docs/first-15-minutes.md) | **Start here as a contributor:** clone, test, scan one asset, read its report against the glossary, run the eval, find a starter issue |
+| [docs/glossary.md](docs/glossary.md) | Every state Assay reports — severity, accountability, verdict state, `undetermined` — and the state each is most often confused with |
+| [docs/cli.md](docs/cli.md) | The `assay` binary: scan, attestation, verify, diff, history, version, serve |
 | [docs/severity-model.md](docs/severity-model.md) | The judgment layer: severity levels, the legitimate-use carve-out, and why |
 | [docs/checks.md](docs/checks.md) | Each mechanic Assay checks, and what it can and cannot conclude |
 | [docs/contract-interface.md](docs/contract-interface.md) | `get_safety(asset)` design and the `evidence_hash` encoding |
+| [docs/api-versioning.md](docs/api-versioning.md) | What `/api/v1` guarantees: additive vs breaking changes and the deprecation process |
+| [docs/api.md](docs/api.md) | The HTTP API `assay serve` exposes: every endpoint, human-readable; [`openapi.yaml`](openapi.yaml) is the schema source |
 | [docs/integrating.md](docs/integrating.md) | How your contract calls `get_safety` and gates on both severity and the bitset |
+| [docs/trust.md](docs/trust.md) | What you are trusting: verifiable facts vs. relayed claims, and consequence matrix |
 | [docs/deployment.md](docs/deployment.md) | Deployed addresses, attested assets, transaction hashes |
-| [docs/verifying.md](docs/verifying.md) | How a third party verifies an attestation end to end, without reading the source |
+| [docs/attester-key.md](docs/attester-key.md) | Attester key custody, loss/compromise response, rotation limits |
+| [docs/verifying.md](docs/verifying.md) | How a third party verifies a downloaded binary, then an attestation, end to end, without reading the source |
+| [docs/severity-rating-comparison.md](docs/severity-rating-comparison.md) | Dated comparison of Assay severity with StellarExpert's rating for the top-50 fixture and scanned sample |
+| [docs/offline-bundle.md](docs/offline-bundle.md) | Archiving the exact source bytes behind an attestation, and verifying them without a network |
+| [docs/transitions.md](docs/transitions.md) | What changed between two observations: capability, severity, accountability and evidence movement |
 | [docs/attestation-run.md](docs/attestation-run.md) | Every asset scanned, what each check returned, and what the run exposed about the scanner |
 | [docs/history.md](docs/history.md) | The observation history API: what is retained, for how long, and what an empty history means |
 | [docs/eval.md](docs/eval.md) | Labelled trap/legitimate set and current results |
+| [docs/threat-model.md](docs/threat-model.md) | The actors, what each can do, and which attacks Assay defends against, accepts, or scopes out |
 | [docs/freshness.md](docs/freshness.md) | How old an attestation may be: measured flag-change rates and window guidance per use class |
+| [docs/temporal.md](docs/temporal.md) | What an attestation says at one observation, and how capability changes affect past exposure |
+| [docs/asset-lists.md](docs/asset-lists.md) | Consuming SEP-0042 Stellar Asset Lists as a second curation source, and why listing is never a safety signal |
 | [docs/adding-a-check.md](docs/adding-a-check.md) | How to write a new mechanic check |
+| [docs/pipeline.md](docs/pipeline.md) | The full ledger-fact to on-chain-verdict path for a single asset |
+| [docs/i18n/](docs/i18n/README.md) | French and Spanish translations of the status section, glossary and integration guide; English is authoritative |
 
 ## Status
 
@@ -81,7 +95,9 @@ for every attested asset, with the limits recorded in
 [#24](https://github.com/use-assay/Assay/issues/24).
 [docs/verifying.md](docs/verifying.md) is the procedure a third party follows to
 check one of those attestations from scratch, including what a mismatch does and
-does not prove.
+does not prove. It begins by verifying the scanner itself against its published
+checksum and build provenance, because a verifier comparing evidence hashes is
+otherwise trusting the binary they downloaded.
 
 Four things are worth knowing before you rely on any of it:
 
@@ -104,6 +120,12 @@ Four things are worth knowing before you rely on any of it:
   never what they are likely to do. A regulated stablecoin with clawback and a
   scam with clawback score the same, on purpose — see
   [the severity model](docs/severity-model.md).
+
+The gaps are not left implicit. [docs/threat-model.md](docs/threat-model.md)
+names the actors, states which attacks are defended (with the test that holds
+them), which are accepted risks, and which are out of scope — including the one
+that matters most, that a single compromised attester key can currently cause an
+admission.
 
 ## License
 

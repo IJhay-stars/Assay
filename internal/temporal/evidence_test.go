@@ -40,7 +40,7 @@ func claim(source, url, claim string, day int) mechanics.Evidence {
 		Source:      source,
 		URL:         url,
 		Claim:       claim,
-		RetrievedAt: time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC),
+		RetrievedAt: mechanics.NewCanonicalTime(time.Date(2026, 9, day, 0, 0, 0, 0, time.UTC)),
 	}
 }
 

@@ -13,7 +13,14 @@ pubnet, and nothing here should be read as a claim that it is ready to be.
 | Wasm hash | `c4105b91b3ceae95b5a225c55bc6981b3dcf71d07fdd0ee5c79a21d25edd301b` |
 | Source | [`contracts/safety-registry`](../assay-contracts/contracts/safety-registry) |
 | Admin / attester | `GALIEUOBDLTFJHTVH5E3MT2BMDTQ3PKMX2U6BRXVKLEB7ARFORFNNMVY` |
-| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5 |
+| Source snapshot | [`eec17a7`](https://github.com/use-assay/Assay/commit/eec17a7dfcdfab80a1cf864eb6fc3dcd13b0a27f) |
+| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5; Rust compiler not recorded |
+
+The contracts' Rust toolchain is pinned to `rustc` 1.98.1 in
+[`assay-contracts/rust-toolchain.toml`](../assay-contracts/rust-toolchain.toml),
+so CI and local builds agree on the compiler and a toolchain upgrade is a
+deliberate commit rather than whatever `stable` happens to be. Rebuilds should
+be produced with it.
 
 The worked integration example from [integrating.md](integrating.md) is
 deployed alongside it, wired to the registry above:
@@ -23,6 +30,8 @@ deployed alongside it, wired to the registry above:
 | **Example gate contract** | `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` |
 | Wasm hash | `ca40172ec8ebc259e7e21429748b2bd7cafe467fa3005d849d81d16938e8987c` |
 | Redeployed | 2026-09-16 — severity ceiling, [#26](https://github.com/use-assay/Assay/issues/26) |
+| Source snapshot | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) |
+| Built with | `stellar` CLI 27.1.0, `soroban-sdk` 27.0.5; Rust compiler not pinned in this source commit |
 | Source | [`contracts/example-gate`](../assay-contracts/contracts/example-gate) |
 
 ### Deployment transactions
@@ -52,13 +61,136 @@ Any of these can be read at
 
 Three instances exist on testnet and none can be removed. Only one should be
 used. Checked on 2026-09-17 by fetching each contract's wasm and hashing it, and
-by reading the constructor argument from each deploy transaction:
+by reading the constructor argument from each deploy transaction or querying `policy()`:
 
-| Instance | Status | Wasm | Registry at construction |
-| --- | --- | --- | --- |
-| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` |
-| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` |
-| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` |
+| Instance | Status | Wasm | Registry at construction | Configured Policy (`policy()`) | Source snapshot | `soroban-sdk` |
+| --- | --- | --- | --- | --- | --- | --- |
+| `CAL5VYSWLKG367D5IYGI57XH7EMN5PLJ4CD6K3MO2HJBYYKEKPG3NKRX` | **canonical** — use this | `ca40172e…` (severity ceiling) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) | 27.0.5 |
+| `CCMA2SW23WUWTJGSC2MTUZVYWROMVTT42NLPTBCOAHGM632KEMNL5N3G` | duplicate, **unused** — nothing in the repo refers to it | `ca40172e…` (identical) | `CBK4FBIH…` | `max_severity: 2`, `max_age: 86400s`, `refused_mechanics: 6` | [`5aa88e9`](https://github.com/use-assay/Assay/commit/5aa88e998a5a2f4a9d93879018d3f3534b2a757d) | 27.0.5 |
+| `CANO57JRGTATHGLM26TWYPIXERSPVI5R52H33K7ZUJGGOEOVVZA44W3U` | **superseded, do not use** — admits critical-by-reputation assets ([#26](https://github.com/use-assay/Assay/issues/26)) | `d1683a1e…` (capability mask only) | `CBK4FBIH…` | `max_severity: 4`, `max_age: 86400s`, `refused_mechanics: 6` | [`c505904`](https://github.com/use-assay/Assay/commit/c50590468e5f5deb83566d4a32d2a57bd895518b) | 27.0.5 |
+
+The configured policy can be verified directly on deployed gates supporting the ABI via:
+```sh
+stellar contract invoke --id $GATE --network testnet --send=no -- policy
+```
+
+## Does the source still build what is deployed?
+
+**Short answer: it cannot be verified today, and the reason is
+[#127](https://github.com/use-assay/Assay/issues/127), not the source.** The
+build is deterministic; the compiler is not pinned, so "the committed source"
+does not determine the bytes. What follows is the measurement rather than a
+conclusion drawn from one.
+
+The `Wasm hash` rows above are a record of what was deployed. Whether the
+source in this repository still produces them is a separate claim, and until
+it is checked they are an unverified record.
+
+### What was measured
+
+Three builds of `assay-safety-registry` from the same commit, each after
+`cargo clean`, the third from a different checkout path with a cold cargo
+cache:
+
+| Build | Toolchain | `sha256sum` of the built wasm |
+| --- | --- | --- |
+| recorded 2026-08-15 | stellar 27.1.0, rustc unknown (never recorded) | `c4105b91b3ceae95b5a225c55bc6981b3dcf71d07fdd0ee5c79a21d25edd301b` |
+| measured, same checkout | stellar 27.1.0, rustc 1.98.1 | `60d482546df4d1973f7d4b5d9ff5b413a974ba16afea1cf4851fe32fe0d6e745` |
+| measured, other checkout path | stellar 27.1.0, rustc 1.98.1 | `60d482546df4d1973f7d4b5d9ff5b413a974ba16afea1cf4851fe32fe0d6e745` |
+| measured, different compiler | stellar 27.1.0, **rustc 1.95.0** | `12dbf6b9d29c2d1109523007b82392b91f232ca16cd1a2a8394b90d6c54425f6` |
+
+Two things follow, and they are separate findings.
+
+**The build is deterministic.** The same source under the same toolchain
+produces byte-identical wasm every time, including from a different checkout
+path with no build cache. Whatever the CLI and the compiler embed in the
+output, it is not a timestamp, a path, or anything else that varies between
+runs.
+
+**The compiler version alone changes the bytes.** Identical source, identical
+`Cargo.lock`, identical `stellar` CLI 27.1.0, identical target — rustc 1.98.1
+and rustc 1.95.0 produce two different hashes. So byte-reproducibility across
+machines is not a property this repository currently has, and cannot have
+until the channel is fixed. `assay-contracts/rust-toolchain.toml` does not
+exist; `rustup` selects whatever channel is installed, so two people running
+`make build-contract` are running two different builds.
+
+Neither measured hash equals the recorded one. **That is not evidence that the
+source has drifted.** It is the expected consequence of an unpinned toolchain,
+and it cuts both ways: today nobody can produce the recorded hash, and equally
+nobody can rule out that they would. Until #127 lands, the recorded hashes
+cannot be confirmed or refuted by anyone, and a matching hash found by
+accident would be luck rather than verification.
+
+For the gate the same holds: recorded `ca40172ec8ebc259e7e21429748b2bd7cafe467fa3005d849d81d16938e8987c`,
+built here `9bd4a4b6a5e71e6c201eb633218c65dfb5dc0209dac6a0d5471b0228a4200a00`.
+
+### Checking it
+
+```sh
+make verify-wasm          # or: scripts/verify-wasm-source.sh
+```
+
+To compare a historical source snapshot with the hashes recorded here, pass
+its commit from this checkout:
+
+```sh
+make verify-wasm SOURCE_REF=eec17a7dfcdfab80a1cf864eb6fc3dcd13b0a27f # registry deployment snapshot
+make verify-wasm SOURCE_REF=c50590468e5f5deb83566d4a32d2a57bd895518b # original example gate
+make verify-wasm SOURCE_REF=5aa88e998a5a2f4a9d93879018d3f3534b2a757d # redeployed example gate
+```
+
+The verifier builds manifests and dependencies from that commit while reading
+the recorded hashes from this checkout. These snapshots all use
+`soroban-sdk` 27.0.5. None contains `assay-contracts/rust-toolchain.toml`, and
+the compiler used for the deployments was not recorded. The verifier therefore
+reports `unpinned` and exits 2 for those snapshots; it cannot reproduce or
+refute their hashes. The snapshot commits identify the source state associated
+with each deployment record, not a transaction-attested build commit.
+
+The script builds each contract from the committed source and compares the
+result to the hashes in this file. It builds into a temporary directory, so it
+never disturbs `assay-contracts/out/` or the artifact a deploy would upload,
+and it never edits this document, changes a recorded hash, or submits a
+transaction. It reports one of four outcomes per contract and exits 0 only
+when every recorded hash is reproduced:
+
+| Outcome | Meaning | Exit |
+| --- | --- | --- |
+| `verified` | The fresh build hashes to the recorded value. | 0 |
+| `mismatch` | It does not. Both values are printed, and it is never tolerated. | 1 |
+| `unpinned` | `rust-toolchain.toml` is missing, so the build cannot be compared. | 2 |
+| `unverifiable` | The `stellar` CLI is missing or is not the recorded 27.1.0, or the build failed. | 2 |
+
+Exit 2 never means "verified" and never means "safe" — it means the run could
+not answer the question, so a run with any `unpinned` or `unverifiable`
+contract never exits 0. **Today it exits 2, and that is the correct answer.**
+The moment #127 adds the pin this becomes the check it was written to be; the
+`unpinned` branch is not a workaround, it is the absence of a verdict.
+
+### What the recorded hashes are valid against
+
+| Component | Recorded | Confidence |
+| --- | --- | --- |
+| `stellar` CLI | 27.1.0 | Recorded and reproducible |
+| Rust target | `wasm32v1-none` | Recorded and reproducible |
+| `soroban-sdk` | 27.0.5 | Recorded; pinned by `Cargo.lock` |
+| Rust compiler | **not recorded** | **Unpinned — see #127** |
+
+The compiler row is the gap. One constraint worth recording for whoever
+closes #127: `soroban-sdk` 27.0.5 requires rustc 1.91.0 or newer, while
+`stellar` CLI 27.1.0 rejects anything outside 1.81, 1.82, 1.83 and 1.91.0 — and
+rejects 1.91.0 itself, so 1.90.0 and 1.91.0 both fail, one for being too old
+and one for the CLI's version check. A pin has to be a channel the CLI
+accepts, not merely one the SDK allows.
+
+### What this does not check
+
+The deployed bytes and this repository's source being *correct* is a
+different question, and is not answered here. Nor does it check that the
+registry still holds the attestations this document records — that is
+`scripts/check-deployment.sh`, which compares the document against the chain
+rather than against this repository.
 
 ## Attested assets
 
@@ -68,33 +200,52 @@ produced by `assay attestation` from a live scan and submitted unmodified by
 eight further assets scanned but not attested, is in
 [attestation-run.md](attestation-run.md).
 
-| Asset | Severity | Flags | Mechanics | Attest transaction |
-| --- | --- | --- | --- | --- |
-| `AQUA` | 0 clear | `0` | — | `1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f` |
-| `USDC` | 2 medium | `18` | `auth_revocable`, `domain_unverified` | `9869957e510ac6cb9ba4e5ffaff66ad0286e420e824efc0095d9e578be37564e` |
-| `USDZ` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `069d519fa20c472bbc3756291307fb30719219903c1e62a27b4967c0b07ecfd6` |
-| `BERKSHIRE` | 4 critical | `54` | `auth_revocable`, `auth_clawback_enabled`, `domain_unverified`, `blocklisted` | `322f4bb5fcc84cea9231b7d12e0a964a304a7bd4ea78f97991ca335426e5e2ff` |
-| `ARST` | 0 clear | `0` | — | `f497b91ab84340bcb7418940e620d080c8566e0cdf27346c8d74e165b5d66506` |
-| `USDGLO` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `6016ed7d908cd20237f114b0cb6778886027ddc8336952acb77ddbeff16caf42` |
-| `DOGE` | 4 critical | `48` | `domain_unverified`, `blocklisted` | `ac1a89a64159e6ac2e9ed61bd67a79cd1584287cf57d19f9dc188d80e81298a6` |
-| `VELO` | 0 clear | `16` | `domain_unverified` | `dcae1dd810f3e310e71e006f175857b12a8925e173e6d62d9f023ee91582e85b` |
-| `REPO` | 4 critical | `48` | `domain_unverified`, `blocklisted` | `a6b5fa3058c3f7f25cbf45b22603f721de7767e4b853e644932e72215eb940e0` |
-| `KALE` | 0 clear | `16` | `domain_unverified` | `db36e5ece6c52d01287da2bdb9722affab84047d58ec21a332edd9d1e7392c90` |
+| Asset | Severity | Flags | Mechanics | Attest transaction | Preimage |
+| --- | --- | --- | --- | --- | --- |
+| `AQUA` | 0 clear | `0` | — | `1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f` | `v1` |
+| `USDC` | 2 medium | `18` | `auth_revocable`, `domain_unverified` | `9869957e510ac6cb9ba4e5ffaff66ad0286e420e824efc0095d9e578be37564e` | `v1` |
+| `USDZ` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `069d519fa20c472bbc3756291307fb30719219903c1e62a27b4967c0b07ecfd6` | `v1` |
+| `BERKSHIRE` | 4 critical | `54` | `auth_revocable`, `auth_clawback_enabled`, `domain_unverified`, `blocklisted` | `322f4bb5fcc84cea9231b7d12e0a964a304a7bd4ea78f97991ca335426e5e2ff` | `v1` |
+| `ARST` | 0 clear | `0` | — | `f497b91ab84340bcb7418940e620d080c8566e0cdf27346c8d74e165b5d66506` | `v1` |
+| `USDGLO` | 3 high | `6` | `auth_revocable`, `auth_clawback_enabled` | `6016ed7d908cd20237f114b0cb6778886027ddc8336952acb77ddbeff16caf42` | `v1` |
+| `DOGE` | 4 critical | `48` | `domain_unverified`, `blocklisted` | `ac1a89a64159e6ac2e9ed61bd67a79cd1584287cf57d19f9dc188d80e81298a6` | `v1` |
+| `VELO` | 0 clear | `16` | `domain_unverified` | `dcae1dd810f3e310e71e006f175857b12a8925e173e6d62d9f023ee91582e85b` | `v1` |
+| `REPO` | 4 critical | `48` | `domain_unverified`, `blocklisted` | `a6b5fa3058c3f7f25cbf45b22603f721de7767e4b853e644932e72215eb940e0` | `v1` |
+| `KALE` | 0 clear | `16` | `domain_unverified` | `db36e5ece6c52d01287da2bdb9722affab84047d58ec21a332edd9d1e7392c90` | `v1` |
+
+Every row is `v1` because all ten attestations predate the later encodings:
+the first tranche was written 2026-08-15, the second 2026-09-05, and the third
+plus the AQUA and DOGE re-attestations 2026-09-16 — all before check-set
+binding (`v2`) landed on 2026-09-26 and network binding (`v3`) on
+2026-09-27. The short names are the preimage's first line without the
+`assay-evidence-` prefix: `v1` is `assay-evidence-v1`, and so on for `v2`, `v3`
+and `v4`. A verifier recomputing any of these hashes must render the `v1`
+bytes described in [contract-interface.md](contract-interface.md); the
+`aqua-`, `usdc-` and `usdz-mainnet-onchain` vectors under
+`internal/attest/testdata/vectors/` pin that encoding byte-for-byte to those
+three on-chain hashes. `assay attestation
+-preimage-version v1` does that rendering from a fresh scan, and
+`scripts/reproducibility.sh` reads this column and compares each asset under
+the version recorded here, so an encoding change and an evidence change are
+reported as different outcomes (`ENCODING` vs `MISMATCH`). A future
+re-attestation under the current encoding would be `v4` (scanner, checks and
+network bound; every `scan.Scanner` report is v4), and this column is what says
+so.
 
 Issuers, SAC addresses, and the evidence hash each attestation commits to:
 
-| Asset | Issuer | Testnet SAC address | `evidence_hash` |
-| --- | --- | --- | --- |
-| `AQUA` | `GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA` | `CDJF2JQINO7WRFXB2AAHLONFDPPI4M3W2UM5THGQQ7JMJDIEJYC4CMPG` | `688453bd…61a4a9` |
-| `USDC` | `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` | `CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY7` | `e7fc765d…d790bd` |
-| `USDZ` | `GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR` | `CAOM5NKBTSGEXTZZKH3STWSFWURMODC3TZ4NS2THN7W5YUDFK3IOHIHU` | `ca9b13a6…65fb4d` |
-| `BERKSHIRE` | `GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ` | `CALAZXOC32XF2DFRKDOFQK7XQETZZTUK7C2OKC6YKPX6KY2YWU2YSPQW` | `dc2bbf08…171a0d` |
-| `ARST` | `GCSAZVWXZKWS4XS223M5F54H2B6XPIIXZZGP7KEAIU6YSL5HDRGCI3DG` | `CBARCMJYRRNSYCWCR3EU2PEHAHWHBCQSMIKQIUSDWR3BK7CBCP622Q2R` | `82a6103f…fccacb` |
-| `USDGLO` | `GBBS25EGYQPGEZCGCFBKG4OAGFXU6DSOQBGTHELLJT3HZXZJ34HWS6XV` | `CDGBOKCE25PVUKFWST2EEK52NHRS5WQ7TN26DFJYCEQNZNROQRSPIBQA` | `69b8c4f8…7c27a5` |
-| `DOGE` | `GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P` | `CDUV37BUTYKKWNGECZZNRYMM7JIQYYWAI7L2TPTXWQAEMIPG4SXRBRPD` | `396c9f7c…91647e` |
-| `VELO` | `GDM4RQUQQUVSKQA7S6EM7XBZP3FCGH4Q7CL6TABQ7B2BEJ5ERARM2M5M` | `CDHI6B6HBY2Q7BVGQ74C23GN3TKPGLCCMOSSRTEQDTTX4ELO5V6A6IOM` | `3ed390fe…49e02a` |
-| `REPO` | `GA2BVQLGAG6UJDPHHTJDQAPBUYJV7D6IWIISGJI2LMQXTOKMHO36EAZR` | `CBLZSCLVU3ZXRUJ3GEL7R3IP6CSN6VUEWPX7O4OYS3F3BYFUCJR7EEAA` | `4dacaa0f…43cede` |
-| `KALE` | `GAKJM27QTNLBBZ352HQ4IDR3GWXUXQUEBKBDWOJG7RBH2NVEWUNSYCEF` | `CCVNR6CGD6NFQG7XC6AVU5HF4YAPVXW5KZJCD73XFKUUO4YZUNEFKU2Z` | `874087f2…dc6112` |
+| Asset | Issuer | Testnet SAC address | `evidence_hash` | Preimage |
+| --- | --- | --- | --- | --- |
+| `AQUA` | `GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA` | `CDJF2JQINO7WRFXB2AAHLONFDPPI4M3W2UM5THGQQ7JMJDIEJYC4CMPG` | `688453bd…61a4a9` | `v1` |
+| `USDC` | `GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN` | `CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY7` | `e7fc765d…d790bd` | `v1` |
+| `USDZ` | `GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR` | `CAOM5NKBTSGEXTZZKH3STWSFWURMODC3TZ4NS2THN7W5YUDFK3IOHIHU` | `ca9b13a6…65fb4d` | `v1` |
+| `BERKSHIRE` | `GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ` | `CALAZXOC32XF2DFRKDOFQK7XQETZZTUK7C2OKC6YKPX6KY2YWU2YSPQW` | `dc2bbf08…171a0d` | `v1` |
+| `ARST` | `GCSAZVWXZKWS4XS223M5F54H2B6XPIIXZZGP7KEAIU6YSL5HDRGCI3DG` | `CBARCMJYRRNSYCWCR3EU2PEHAHWHBCQSMIKQIUSDWR3BK7CBCP622Q2R` | `82a6103f…fccacb` | `v1` |
+| `USDGLO` | `GBBS25EGYQPGEZCGCFBKG4OAGFXU6DSOQBGTHELLJT3HZXZJ34HWS6XV` | `CDGBOKCE25PVUKFWST2EEK52NHRS5WQ7TN26DFJYCEQNZNROQRSPIBQA` | `69b8c4f8…7c27a5` | `v1` |
+| `DOGE` | `GA22IDJNHUMC3XKUCCBFNTQIJOUBWINC5GCXHLJ2V6KZ3OWAXCULNQ7P` | `CDUV37BUTYKKWNGECZZNRYMM7JIQYYWAI7L2TPTXWQAEMIPG4SXRBRPD` | `396c9f7c…91647e` | `v1` |
+| `VELO` | `GDM4RQUQQUVSKQA7S6EM7XBZP3FCGH4Q7CL6TABQ7B2BEJ5ERARM2M5M` | `CDHI6B6HBY2Q7BVGQ74C23GN3TKPGLCCMOSSRTEQDTTX4ELO5V6A6IOM` | `3ed390fe…49e02a` | `v1` |
+| `REPO` | `GA2BVQLGAG6UJDPHHTJDQAPBUYJV7D6IWIISGJI2LMQXTOKMHO36EAZR` | `CBLZSCLVU3ZXRUJ3GEL7R3IP6CSN6VUEWPX7O4OYS3F3BYFUCJR7EEAA` | `4dacaa0f…43cede` | `v1` |
+| `KALE` | `GAKJM27QTNLBBZ352HQ4IDR3GWXUXQUEBKBDWOJG7RBH2NVEWUNSYCEF` | `CCVNR6CGD6NFQG7XC6AVU5HF4YAPVXW5KZJCD73XFKUUO4YZUNEFKU2Z` | `874087f2…dc6112` | `v1` |
 
 `USDZ` is the case the [severity model](severity-model.md) exists to handle: a
 confiscation-capable issuer with a *verified* domain. It scores `high` on
@@ -226,12 +377,60 @@ configuration set by validator vote.
 ### The network parameters
 
 Read on 2026-09-27 with `stellar network settings --network testnet`
-(protocol 28):
+(protocol 28), and re-read unchanged on 2026-10-20 (protocol 29 — the
+`persistent_rent_rate_denominator` of `1215` and `fee_write1_kb` of `437`,
+which price the rent below, were the same on both readings):
 
 | Setting | Ledgers | At ~5 s per ledger |
 | --- | --- | --- |
 | `min_persistent_ttl` (what a fresh write gets) | 120 960 | ~7 days |
 | `max_entry_ttl` (the most an extension can grant) | 3 110 400 | ~180 days |
+
+### What the rent costs (measured 2026-10-20)
+
+The parameters above are in ledgers. This section is what they cost in
+stroops, because inclusion fees are not what an attestation costs: persistent
+rent is, and it was never measured here until now. All three figures come
+from submitted transactions on testnet, each printed by the stellar CLI's
+`--cost` output, against this repository's wasm (hash
+`ae7a8bef…371112e`, built from this branch, which includes the asset-address
+validation of #349) deployed at `CBK5HOIJ…ITP` and `CCWTAMUT…S22T`, on the
+protocol 29 network whose parameters are recorded above. The subject is
+testnet `USDC`, SAC `CA2E53VHFZ6YSWQIEIPBXJQGT6VW3VKWWZO555XKRQXYJ63GEBJJGHY7`.
+
+| What was measured | Transaction | Fee charged |
+| --- | --- | --- |
+| `attest` on an asset with no attestation yet: a new entry written and extended to the maximum in the same transaction, which is what the contract always does | [`29af8a0b…`](https://stellar.expert/explorer/testnet/tx/29af8a0b310e0b3be221766624a6dc130d9f6d92b8f5c80ffb08031634c3beb8) | **5 765 728** stroops (~0.58 XLM) |
+| `attest` again on the same asset, its entry already at the maximum | [`1ebb2008…`](https://stellar.expert/explorer/testnet/tx/1ebb20082f4991e14d9f2e05ae57b9fe9518b25ae39eb88590a12738a7604a8f), [`5d389c4e…`](https://stellar.expert/explorer/testnet/tx/5d389c4e3c4df664263b4ad347ff0c74798cde9f4ae7fb68bb79e259b3ebe45d), [`a145c03d…`](https://stellar.expert/explorer/testnet/tx/a145c03d1769796445f06c3c32ec5b4731525a0eb61ae322bc1e86d9b9dbd80b) | 19 960, 13 574, 9 924 stroops (< 0.002 XLM) |
+| `stellar contract extend --ledgers-to-extend 3110399` — one persistent entry from the network minimum to the maximum | [`52a79ec0…`](https://stellar.expert/explorer/testnet/tx/52a79ec0680fb8dbd178336ef3ee60723fe4c1ae8e3816d22aa990f0fd84d933) | **2 056 579** stroops (~0.21 XLM) |
+
+Four re-attestations were taken in all; the first, immediately after the
+initial write, charged 85 195 stroops. The exact figure moves with the host's
+refundable components, but every re-attestation sample is under 0.01 XLM.
+
+Two things the table says that the inclusion-fee measurement of
+2026-09-25 did not:
+
+- **The first attestation of an asset costs about half an XLM of rent, and
+  almost all of it is the extension to the maximum, not the write.** A
+  transaction's inclusion fee is 100 stroops; it is not the number to budget
+  by.
+- **Re-attesting the same asset does not pay that again.** The entry is
+  already at the maximum, so the extension is nearly a no-op and the cost
+  falls by more than two orders of magnitude. The loop in
+  [attestation-writer.md](attestation-writer.md) therefore runs cheaply, and
+  the expensive moments are the ones that create an entry — first attestation,
+  or re-attestation after the entry has been archived (restoring it is priced
+  at 11 589 615 simulated stroops below).
+
+The third row is the same extension priced on its own, for the by-hand
+operation at the end of this section. Its subject is a just-deployed registry
+instance rather than an attestation entry, because that is the only entry
+this contract ever leaves at the network minimum: `attest` extends every
+attestation as it writes, and `init` extends the instance. An instance entry
+is smaller than a `Safety` entry, so extending an attestation from the
+minimum costs more than 0.21 XLM — the first row is the number that already
+contains a real attestation's full-length extension.
 
 ### The live registry is already archived
 
@@ -297,11 +496,47 @@ From this change onward the contract extends TTLs itself:
 | --- | --- |
 | `init` | contract instance and code, to the network maximum |
 | `attest` | the attestation entry, plus the instance and code, to the network maximum |
+| `attest_many` | every attestation entry in the batch, plus the instance and code, to the network maximum |
 | `revoke` | the instance and code (the entry is removed, so it has no TTL) |
 | `get_safety`, `is_safe`, `is_safe_masked` | nothing |
 
 The maximum comes from the host (`env.storage().max_ttl()`), not from a
 constant in the contract, so a change in network parameters needs no redeploy.
+
+### Checking an entry's remaining lifetime
+
+Fetch the contract-code entry and compare its `liveUntilLedgerSeq` with the
+latest ledger sequence in the JSON response. Their difference is the remaining
+lifetime in ledgers; at roughly five seconds per ledger, it gives an
+approximate time. For the registry wasm above:
+
+```sh
+stellar ledger entry fetch contract-code --wasm-hash c4105b91b3ceae95b5a225c55bc6981b3dcf71d07fdd0ee5c79a21d25edd301b --network testnet --output json
+```
+
+This checks the code entry, not each asset's persistent contract-data entry.
+On 2026-09-30, a direct testnet RPC `getLedgerEntries` query for this code hash
+reported `liveUntilLedgerSeq: 0` at latest ledger `4,951,623`: the code was
+already archived, so no positive remaining lifetime could be measured. The
+registry instance and attestations were also reported archived above. These
+are measured chain values, not an estimate from the nominal ~180-day maximum.
+
+Archival is not a silent `None`: Soroban restores an archived entry when a
+transaction accesses it. A successful read returns the original attestation
+and the consuming transaction pays the restore cost; freshness is still
+decided by the gate's `max_age_secs`. If restoration cannot be paid or the
+transaction fails, the gate does not admit the operation. See [What a read of
+an archived entry actually does](#what-a-read-of-an-archived-entry-actually-does).
+
+The registry currently documented above predates TTL-on-write and cannot be
+upgraded in place. Do not assume re-attesting against that address extends
+entries to the maximum. A registry deployed with the handling tracked in
+[#87](https://github.com/use-assay/Assay/issues/87) extends entries on
+attestation; keeping attestations refreshed remains the operator's
+responsibility, as covered by the [re-attestation runbook
+(#115)](https://github.com/use-assay/Assay/issues/115). Migration to that
+code requires the new-deployment and re-attestation steps in
+[Migrating to a registry with `revoke`](#migrating-to-a-registry-with-revoke).
 
 Why writes only:
 
@@ -346,7 +581,74 @@ stellar contract extend --id <CONTRACT_ID> --key-xdr "$KEY" --durability persist
   --ledgers-to-extend 3110399 --source-account assay-attester --network testnet
 ```
 
+## Checking for drift
+
+The tables in this file are the record of what is deployed, and they have
+drifted before: the docs named a superseded gate after the redeploy, and an
+unexplained duplicate instance existed before anything recorded it. Drift is
+silent, because a stale table reads exactly like a correct one.
+
+`scripts/check-deployment.sh` reads these tables and the network, and reports
+the difference:
+
+```sh
+scripts/check-deployment.sh                          # public testnet endpoint
+scripts/check-deployment.sh --rpc https://… --timeout 30
+ASSAY_RPC_URL=https://… ASSAY_RPC_TIMEOUT=30 scripts/check-deployment.sh
+scripts/check-deployment.sh --deployment /tmp/copy.md   # a copy, not this file
+```
+
+It checks the registry and gate addresses, the wasm hash of the registry and of
+all three gate instances, the registry each gate was constructed with, and the
+severity, flags and evidence hash of all ten attestations — 21 checks. The
+`Preimage` column is validated while the tables are parsed: every row must name
+`v1`, `v2`, `v3` or `v4`, and the two tables must agree for a given asset. It is not
+compared against the chain, because the chain stores only the hash; whether the
+named encoding reproduces that hash is what the
+[Reproducibility job](../CONTRIBUTING.md#the-reproducibility-job) tests by
+re-scanning. Chain
+state is read with one `getLedgerEntries` call, as in
+[Entry lifetime](#entry-lifetime) above, so it needs no `stellar` CLI and no
+transaction: restoring an archived entry is what a transaction would do, and
+reading what is documented does not require it.
+
+Every check gets one of four outcomes, and only the first is a pass:
+
+| Outcome | Meaning |
+| --- | --- |
+| `valid` | The documented value matches chain state. |
+| `invalid` | A mismatch, reported with **both** values. For an address, "no contract at this address" is the on-chain value. |
+| `absent` | A documented attestation with no entry on chain — the expected outcome for an archived or withdrawn attestation. Distinct from a mismatch, and never a match. |
+| `unknown` | The RPC was unreachable, timed out, or answered with an error. Inconclusive by definition: neither a match nor a mismatch, and never a pass. |
+
+Exit codes follow `scripts/reproducibility.sh`: **0** if every check is valid,
+**1** if any is `invalid` or `absent` (drift, named, with both values), and
+**2** if no drift was found but at least one check is `unknown`, or the tables
+could not be parsed. Exit 2 never means "no drift" — it means the run could not
+answer the question, so a run with any `unknown` never exits 0. When drift and
+an `unknown` occur together the run exits 1 and reports the unknowns too: the
+finding is the more important information.
+
+The script only reads. It never edits this file and never submits a
+transaction; fixing drift is a decision for whoever owns the deployment.
+
+[`.github/workflows/check-deployment.yml`](../.github/workflows/check-deployment.yml)
+runs it weekly and on demand. It is deliberately not on the PR path, for the
+reason given in [CONTRIBUTING.md](../CONTRIBUTING.md#the-reproducibility-job): a
+change that touches no deployment state would fail here for reasons unrelated
+to itself.
+
+**This checks the document against the chain, not the chain against the
+source.** Whether the recorded wasm hashes come from the code in this
+repository is [#93](https://github.com/use-assay/Assay/issues/93), which is
+still open and needs a reproducible build rather than a ledger read.
+
 ## Redeploying
+
+A rebuilt wasm only reproduces the recorded hashes if it comes from the same
+toolchain. [CONTRIBUTING.md](../CONTRIBUTING.md#contract-toolchain) names the
+`stellar` CLI version, the Rust target and the `soroban-sdk` version, and gives
+the command that verifies them before you build.
 
 ```sh
 make build-contract          # stellar contract build -> assay-contracts/out/
@@ -391,12 +693,41 @@ make read   ASSET=AQUA-GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA
 `assay attestation`, and submits them. There is no path through it that lets a
 hand-written severity reach the contract.
 
+## Admin Transfer and Rotation
+
+Admin authority can be rotated using a two-step process (`transfer_admin` followed by `accept_admin`).
+Two-step transfer prevents accidental transfer to an unowned address or typo:
+
+1. **Initiate Transfer** (Current Admin):
+   ```sh
+   stellar contract invoke --id <CONTRACT_ID> --source-account <CURRENT_ADMIN_KEY> \
+     --network testnet -- transfer_admin --new_admin <NEW_ADMIN_ADDRESS>
+   ```
+2. **Accept Transfer** (New Admin):
+   ```sh
+   stellar contract invoke --id <CONTRACT_ID> --source-account <NEW_ADMIN_KEY> \
+     --network testnet -- accept_admin
+   ```
+3. **Cancel a pending transfer** (Current Admin, optional):
+   ```sh
+   stellar contract invoke --id <CONTRACT_ID> --source-account <CURRENT_ADMIN_KEY> \
+     --network testnet -- cancel_admin_transfer
+   ```
+
+After `accept_admin` succeeds, `new_admin` becomes the sole authorized attester and the old admin key loses all write permissions. `cancel_admin_transfer` withdraws a proposal before it is accepted; it leaves the current admin in place, emits an event, and makes a subsequent `accept_admin` fail with `NoPendingAdmin`.
+
+> [!NOTE]
+> Redeploying contract code: Adding `transfer_admin`, `accept_admin`, and `cancel_admin_transfer` requires redeploying the registry contract on testnet because Soroban contract WASM is immutable without an explicit upgrade entrypoint. Redeploying requires running `init(admin)` on the newly deployed instance and re-submitting attestations for the corpus assets.
+
 ## What this deployment is not
 
 - **Not mainnet, and not a candidate for it.** The list below is why.
 - **One key can write anything.** The admin is a single ed25519 account whose
   seed lives on one machine. Anyone holding it can attest any severity for any
-  asset. A real deployment wants a threshold of independent attesters;
+  asset. Custody, backup, loss and compromise response, and why rotation
+  currently means redeploy are documented in
+  [attester-key.md](attester-key.md). A real deployment wants a threshold of
+  independent attesters;
   [multi-attestor.md](multi-attestor.md) compares the options.
 - **10 attested assets.** Everything else on the network reads as `None`. That is the
   correct answer — unknown, not safe — but it means the registry is not useful

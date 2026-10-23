@@ -85,7 +85,7 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		Source:      "horizon",
 		URL:         horizonAssetURL(s.Asset),
 		Claim:       "issuer flags: " + flagSummary(flags),
-		RetrievedAt: s.StatFetchedAt,
+		RetrievedAt: NewCanonicalTime(s.StatFetchedAt),
 	})
 
 	// The second source is cited only when it disagrees. Attaching it to every
@@ -97,7 +97,7 @@ func (c CapabilityCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 			Source:      "horizon/account",
 			URL:         horizonAccountURL(s.Asset.Issuer),
 			Claim:       "issuer account flags: " + flagSummary(s.Issuer.Flags),
-			RetrievedAt: s.IssuerFetchedAt,
+			RetrievedAt: NewCanonicalTime(s.IssuerFetchedAt),
 		})
 	}
 

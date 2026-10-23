@@ -11,6 +11,7 @@ package horizon_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -274,5 +275,9 @@ func (d delayRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 	if d.delay > 0 {
 		time.Sleep(d.delay)
 	}
-	return d.rt.RoundTrip(req)
+	resp, err := d.rt.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }

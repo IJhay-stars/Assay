@@ -6,6 +6,13 @@ Report privately via [GitHub's security advisory form](https://github.com/use-as
 or by email to deekhay7534@gmail.com.
 
 Please do not open a public issue for anything in the first category below.
+The same private-first process applies if a scanner defect or other security
+failure may have produced an under-reported attestation. Include the affected
+asset and network, registry and transaction details when available, scanner
+version, and a reproduction or supporting evidence. Maintainers will coordinate
+mitigation and disclosure, notify known affected consumers, and publish a
+correction notice when it is safe to do so; see the
+[attestation correction runbook](docs/attestation-correction.md).
 
 There is no bug bounty. Assay is an early open-source project and cannot
 offer payment.
@@ -16,6 +23,13 @@ Assay is not a service holding user data, so the usual list does not map
 cleanly. What Assay produces is a **claim about whether someone's money can be
 taken**, and a contract that gates on that claim. The security-relevant failures
 are the ones that make a claim wrong in the dangerous direction.
+
+[docs/threat-model.md](docs/threat-model.md) names the actors, what each can do,
+and every attack class that is already known — defended, accepted as a bounded
+risk, or out of scope, with the reason in each case. Read it before reporting:
+a gap listed there as accepted is still worth a report if you think the accepted
+reasoning is wrong, but it is not a discovery, and the answer will be the
+reasoning rather than a fix.
 
 ### Critical: anything that under-reports risk
 
@@ -65,17 +79,76 @@ These are the bugs that matter most, because someone acts on the output.
 - Missing checks. A mechanic Assay does not examine yet is a feature request —
   open an issue.
 
+## Attester key
+
+The testnet registry's entire write path is the single `assay-attester` key.
+Where it lives, how it is backed up, what an attacker holding it can and
+cannot do, and the response to loss or compromise are documented in
+[docs/attester-key.md](docs/attester-key.md). A suspected key compromise that
+produces under-reporting attestations counts as a critical report under the
+policy above — report it privately first.
+
 ## Supported versions
 
-Pre-1.0. Only `main` is supported; there are no maintained release branches.
+Pre-1.0. Fixes land on `main`; there are no maintained release branches. What
+receives a fix depends on what you are reporting against.
 
-## The contract is not deployed
+### Scanner (`assay` CLI and HTTP API)
 
-`assay-contracts` has no testnet or pubnet deployment, so there is nothing live
-to attack. Please still report design flaws in the ABI or the gate logic — the
-value of finding them is highest before anything depends on them.
+| Version | Receives fixes | Notes |
+| --- | --- | --- |
+| `main` | **Yes** | Builds from a checkout report their scanner version as `devel` (`internal/version`). |
+| Latest `v*` release tag | **Yes**, by a new release | No release tag has been cut yet ([CONTRIBUTING.md](CONTRIBUTING.md), "Releasing"). Once one exists, a fix ships as a new tag. |
+| Older `v*` tags | No | Upgrade to the latest release. A report that reproduces only on an old tag is still welcome if it reached an attestation. |
+
+### Deployed contracts (Stellar testnet only)
+
+Soroban contracts cannot be patched in place: the registry has no upgrade
+entrypoint, so a contract fix ships as a **new deployment**, recorded in
+[docs/deployment.md](docs/deployment.md), which is the source of truth for
+these addresses.
+
+| Contract | Address | Receives fixes | Notes |
+| --- | --- | --- | --- |
+| Safety registry | `CBK4FBIH…` | **Yes**, by redeployment | The live registry (wasm `c4105b91…`, source `eec17a7`). It predates `revoke` and TTL-on-write, which exist only in the source on `main`; see [migrating](docs/deployment.md#migrating-to-a-registry-with-revoke). |
+| Example gate | `CAL5VYSW…` | **Yes**, by redeployment | The canonical gate (wasm `ca40172e…`). |
+| Example gate (duplicate) | `CCMA2SW2…` | Covered by `CAL5VYSW…` | Identical wasm and policy; nothing refers to it. |
+| Example gate (superseded) | `CANO57JR…` | **No**, it cannot be | Known-flawed ([#26](https://github.com/use-assay/Assay/issues/26)). A gate pointing at it is in scope as an unfixed #26, see below. |
+| Contract source on `main` | `assay-contracts/` | **Yes** | Includes code not yet deployed (`revoke`). Report against the source as well as against what runs. |
+
+There is no pubnet deployment, so nothing on pubnet is supported.
+
+**Keeping this table current:** update it in the same change as a release
+tag, a redeployment or a change of canonical instance. A report against an
+address missing from this table is answered from
+[docs/deployment.md](docs/deployment.md), not refused.
+
+## What is deployed
+
+The `assay-contracts` registry and the example gate **are deployed, on Stellar
+testnet**. There is no pubnet deployment. This is a live target: report against
+what is running, not against what you assume is running.
+
+[docs/deployment.md](docs/deployment.md) is the source of truth for addresses,
+wasm hashes and deployment transactions. It is linked rather than copied here
+so there is one place to correct when the deployment changes.
+
+Two things about that deployment are security-relevant:
+
+- **One gate instance is superseded and known-flawed.** `CANO57JR…` masks
+  capability bits only, so it admits assets whose severity comes from
+  reputation — the [#26](https://github.com/use-assay/Assay/issues/26) failure.
+  It cannot be removed, because Soroban contracts cannot be deleted, so it is
+  still live. `CAL5VYSW…` is the canonical instance. A gate pointing at
+  `CANO57JR…` is an unfixed #26 and is in scope as one.
+- **`evidence_hash` is independently verifiable.** The encoding is specified
+  in [docs/contract-interface.md](docs/contract-interface.md#evidence_hash-commits-to-the-claims-not-to-the-clock)
+  and was verified byte-for-byte against that procedure on 2026-09-17;
+  [docs/verifying.md](docs/verifying.md) walks the check.
 
 Known limitations, documented rather than hidden, in
-[docs/contract-interface.md](docs/contract-interface.md#not-done-yet):
-a single admin key can write any attestation, and `evidence_hash` has no
-canonical encoding yet, so it cannot currently be verified independently.
+[docs/contract-interface.md](docs/contract-interface.md#not-done-yet): a single
+admin key can write any attestation, and nothing refreshes an attestation when
+an issuer's flags change.
+The full list, with the direction each one fails in, is
+[docs/threat-model.md](docs/threat-model.md).

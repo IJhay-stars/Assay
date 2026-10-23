@@ -30,7 +30,7 @@ func newClearReport(scannedAt time.Time) *mechanics.Report {
 		State:          mechanics.StateValid,
 		Stale:          false,
 		Undetermined:   false,
-		ScannedAt:      scannedAt,
+		ScannedAt:      mechanics.NewCanonicalTime(scannedAt),
 		Findings: []mechanics.Finding{
 			{
 				Check:     "capability",
@@ -238,7 +238,7 @@ func TestStaleEngineRunSetsInitialValidState(t *testing.T) {
 	s := &mechanics.Subject{
 		Asset:           mechanics.Asset{Code: "TEST", Issuer: testIssuer},
 		Stat:            &horizon.AssetStat{AssetCode: "TEST", AssetIssuer: testIssuer},
-		Issuer:          &horizon.Account{AccountID: testIssuer},
+		Issuer:          &horizon.Account{AccountID: testIssuer, HomeDomain: "test.example"},
 		StatFetchedAt:   time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
 		IssuerFetchedAt: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
 		ScannedAt:       time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),

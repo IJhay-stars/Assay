@@ -2,6 +2,7 @@ package sep1_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -84,8 +85,19 @@ func TestExhaustSep1InfiniteBodyIsBounded(t *testing.T) {
 
 // TestExhaustSep1NonTerminatingResponseIsBounded serves headers and then never
 // sends a body. The fetch must fail within the timeout rather than hang.
+//
+// The requested domain is public-looking and the transport rewrites it to the
+// httptest server, so the host policy does not refuse the fetch before it is
+// made and the timeout is what the test actually measures.
 func TestExhaustSep1NonTerminatingResponseIsBounded(t *testing.T) {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Declare a body larger than anything this handler will ever write, so
+		// the response can never be read as a complete zero-byte document.
+		// Without it the server may finalize the flushed response just before
+		// the client's timeout fires, and the fetch would race between an error
+		// and a clean empty EOF — the assertion below must not depend on which
+		// side of that race wins.
+		w.Header().Set("Content-Length", "1024")
 		w.WriteHeader(http.StatusOK)
 		if f, ok := w.(http.Flusher); ok {
 			f.Flush()
@@ -96,11 +108,12 @@ func TestExhaustSep1NonTerminatingResponseIsBounded(t *testing.T) {
 
 	f := sep1.NewFetcher()
 	client := srv.Client()
+	client.Transport = rewriteTo{base: client.Transport, host: domainOf(srv.URL)}
 	client.Timeout = 200 * time.Millisecond
 	f.HTTP = client
 
 	start := time.Now()
-	if _, err := f.Fetch(context.Background(), domainOf(srv.URL)); err == nil {
+	if _, err := f.Fetch(context.Background(), "non-terminating.example"); err == nil {
 		t.Fatal("a response that never ends was reported as a successful fetch")
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
@@ -130,16 +143,38 @@ func TestExhaustSep1SlowDripIsBounded(t *testing.T) {
 
 	f := sep1.NewFetcher()
 	client := srv.Client()
+	client.Transport = rewriteTo{base: client.Transport, host: domainOf(srv.URL)}
 	client.Timeout = 200 * time.Millisecond
 	f.HTTP = client
 
 	start := time.Now()
-	if _, err := f.Fetch(context.Background(), domainOf(srv.URL)); err == nil {
+	if _, err := f.Fetch(context.Background(), "slow-drip.example"); err == nil {
 		t.Fatal("a slow-drip response was reported as a successful fetch")
 	}
 	if elapsed := time.Since(start); elapsed > 2*time.Second {
 		t.Fatalf("slow-drip response was not bounded by the timeout: took %s", elapsed)
 	}
+}
+
+// rewriteTo sends every request to host while leaving the URL path and scheme
+// untouched, so the fetcher's host policy still sees the requested domain. The
+// base transport is preserved so the httptest server's TLS configuration is
+// used.
+type rewriteTo struct {
+	base http.RoundTripper
+	host string
+}
+
+func (t rewriteTo) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	u := *req.URL
+	u.Host = t.host
+	req.URL = &u
+	resp, err := t.base.RoundTrip(req)
+	if err != nil {
+		return nil, fmt.Errorf("round trip: %w", err)
+	}
+	return resp, nil
 }
 
 func domainOf(u string) string {

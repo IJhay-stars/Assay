@@ -5,13 +5,40 @@ Each `<name>.preimage` file is the exact canonical byte sequence that
 hex digest. A third-party reimplementation of the encoding (any language) can
 verify itself against these fixtures without running this repo's code.
 
-`aqua-mainnet-onchain` is traceable to a live mainnet attestation. Its on-chain
-`evidence_hash` is
-`688453bd22e9b694b9c70659d37526bdae18944645542642008e9d961461a4a9`, recorded
-by transaction
-`1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f` for asset
-`AQUA-GBNZILSTVQZ4R7IKQDGHYGY2QXL5QOFJYQMXPKWRRM5PAV7Y4M67AQUA`. The expected
-digest, transaction, and deployment table asset are pinned in `vectors.json`.
+`aqua-mainnet-onchain`, `usdc-mainnet-onchain` and `usdz-mainnet-onchain` are
+traceable to the testnet attestations for those mainnet assets: each digest
+equals the `evidence_hash` recorded on chain and in `docs/attestation-run.md`
+(AQUA tx `1b6bafc1226570b2415299f5531256716f4d8dc489a9784fcd6ea347d0f63f5f`,
+USDC tx `9869957e510ac6cb9ba4e5ffaff66ad0286e420e824efc0095d9e578be37564e`,
+USDZ tx `069d519fa20c472bbc3756291307fb30719219903c1e62a27b4967c0b07ecfd6`).
+Their full digests are AQUA
+`688453bd22e9b694b9c70659d37526bdae18944645542642008e9d961461a4a9`, USDC
+`e7fc765d396de672a85c1b7fe76f67b05a17ad0798167748b285df020ed790bd` and USDZ
+`ca9b13a66f3a0a4b43d66dea29a505658447e08eee200d2bdb5e66aa1065fb4d`; `vectors.json`
+pins each digest with its transaction and deployment-table asset.
+`onchain_test.go` pins those three digests as literal constants, so a vector
+regenerated from whatever the encoder emits fails even if its `.digest` file is
+rewritten to match.
+
+**Do not regenerate these files from the encoder.** They are the reference the
+encoder is checked against. A v1 vector whose bytes change no longer describes
+an attestation that exists. That happened once: a script added an empty
+`checks` line to every v1 vector and rewrote the digests, and for a while no
+on-chain hash reproduced (#269). If the encoder and a vector disagree, the
+encoder is wrong unless the change is a deliberate new encoding, and a new
+encoding gets a new version tag and new vector files, never edits to existing
+ones.
+
+Every version tag has at least one vector: the v1 set above and the
+`escaped`/`sorted`/`accountability` cases, `checkset-bound-v2`, the v3 pair
+below, and `scanner-network-bound-v4`, whose scanner identity is pinned to
+`v1.2.3` in `vectors_test.go`.
+
+`network-bound-pubnet` and `network-bound-testnet` are the v3 pair: two vectors
+byte-identical except for the `network` line, which is why their digests
+differ. They pin the property #41 asks for — the same facts read from two
+ledgers can no longer hash identically — and a reimplementation can verify
+itself against both without running this repo's code.
 
 The vectors were produced by an independent implementation of the documented
 rules (`docs/contract-interface.md`), not by the Go encoder — see

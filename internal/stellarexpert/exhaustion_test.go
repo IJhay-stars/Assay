@@ -62,20 +62,30 @@ func clientFor(body *streamBody) *stellarexpert.Client {
 
 const address = "GBBS25EGYQPGEZCGCFBKG4OAGFXU6DSOQBGTHELLJT3HZXZJ34HWS6XV"
 
+// boundedReads is the most bytes the client may read from one remote response:
+// MaxBody bytes per attempt, and the body is re-read once per retry attempt.
+const boundedAttempts = 3 // stellarexpert.DefaultRetryOptions().Attempts
+
+// boundedReads is the most bytes the client may read from one remote response:
+// MaxBody bytes per attempt, and the body is re-read once per retry attempt.
+const boundedReads = stellarexpert.MaxBody * boundedAttempts
+
 // TestExhaustStellarExpertOversizedBodyIsTruncated serves a body four times the
-// cap. The decode must fail on the truncated document and must never read past
-// the cap.
+// cap. The decode must fail on the truncated document and the client must never
+// read more than MaxBody bytes in a single attempt.
 func TestExhaustStellarExpertOversizedBodyIsTruncated(t *testing.T) {
 	body := &streamBody{max: stellarexpert.MaxBody * 4}
 
 	if _, err := clientFor(body).Directory(context.Background(), address); err == nil {
 		t.Fatal("an oversized body decoded as a valid response")
 	}
-	if body.read > stellarexpert.MaxBody {
-		t.Fatalf("client read %d bytes, past the %d-byte cap", body.read, stellarexpert.MaxBody)
+	// Each attempt is capped at MaxBody; with the retry loop the body may be
+	// read once per attempt.
+	if body.read > boundedReads {
+		t.Fatalf("client read %d bytes, past the %d-byte cap", body.read, boundedReads)
 	}
-	if body.read != stellarexpert.MaxBody {
-		t.Fatalf("client read %d bytes, want exactly the %d-byte cap", body.read, stellarexpert.MaxBody)
+	if body.read < stellarexpert.MaxBody {
+		t.Fatalf("client read %d bytes, want at least the %d-byte cap", body.read, stellarexpert.MaxBody)
 	}
 }
 
@@ -87,8 +97,12 @@ func TestExhaustStellarExpertInfiniteBodyIsBounded(t *testing.T) {
 	if _, err := clientFor(body).Directory(context.Background(), address); err == nil {
 		t.Fatal("an infinite body decoded as a valid response")
 	}
-	if body.read != stellarexpert.MaxBody {
+	if body.read > boundedReads {
 		t.Fatalf("client read %d bytes from an infinite body, want the %d-byte cap",
+			body.read, boundedReads)
+	}
+	if body.read < stellarexpert.MaxBody {
+		t.Fatalf("client read %d bytes from an infinite body, want at least the %d-byte cap",
 			body.read, stellarexpert.MaxBody)
 	}
 }

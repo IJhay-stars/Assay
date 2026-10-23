@@ -153,6 +153,13 @@ const (
 // the ledger granting a power. Engine.Run enforces this at runtime, and the
 // escalation tests enforce it across the eval fixtures. See
 // docs/severity-model.md.
+//
+// It is also the public answer to "which bits are powers": everything outside
+// this mask (auth_immutable, domain_unverified, blocklisted) is a reported
+// fact, not a power (issue #34). The Rust contract exports the same value as
+// CAPABILITY_MASK; the ABI drift test fails the build if the two ever
+// disagree. Bit positions are unchanged — existing attestations commit to
+// them.
 const CapabilityMask = MechAuthRequired | MechAuthRevocable | MechClawbackEnabled
 
 // ConfiscationMask covers the mechanics that let an issuer take a balance.
@@ -185,6 +192,36 @@ func (m Mechanic) Names() []string {
 	return out
 }
 
+// ParseMechanicNames turns the mechanic names a serialized report carries back
+// into the bitset the report omitted.
+//
+// Report.Mechanics is deliberately not serialized: the preimage binds the
+// numeric bitset, and the JSON document carries the same information as
+// mechanics.MechanicNames. A reader that only has the document (assay diff, or
+// any other consumer) needs the bits back to compare two reports offline.
+//
+// An unknown name is an error rather than silently dropped: guessing would
+// make a report that names a power this build does not understand compare as
+// if the power were absent, which is precisely the "absent looks unchanged"
+// failure the temporal detectors exist to prevent.
+func ParseMechanicNames(list []string) (Mechanic, error) {
+	var m Mechanic
+	for _, name := range list {
+		found := false
+		for _, n := range names {
+			if n.name == name {
+				m |= n.bit
+				found = true
+				break
+			}
+		}
+		if !found {
+			return 0, fmt.Errorf("mechanics: unknown mechanic %q", name)
+		}
+	}
+	return m, nil
+}
+
 // Accountability reports whether an identifiable party stands behind the
 // issuer's capability. It is reported alongside severity and never folded into
 // it: a verified domain does not make confiscation power safer, it only makes
@@ -202,4 +239,37 @@ const (
 	// AccountabilityVerified means the issuer's advertised domain published a
 	// stellar.toml that names this exact code and issuer.
 	AccountabilityVerified Accountability = "verified"
+)
+
+// AccountabilityReason classifies why an accountability verdict was reached, so
+// a consumer can tell "the stellar.toml could not be fetched" from "the
+// stellar.toml was fetched and does not claim this asset" from JSON alone,
+// without reading the reasoning text.
+//
+// It is report metadata, not part of the hashed evidence preimage: the
+// evidence claim text already carries the distinction (for example
+// "not retrievable: status 404" versus "CURRENCIES lists ... none matching"),
+// and adding it to the preimage would re-hash every existing attestation
+// without new evidentiary content. See docs/contract-interface.md.
+//
+// NoHomeDomain pairs with AccountabilityUnknown; the other three pair with
+// AccountabilityUnverified. AccountabilityVerified carries no reason: a
+// reciprocal claim needs no further classification.
+type AccountabilityReason string
+
+const (
+	// AccountabilityReasonFetchFailed means the issuer advertises a home_domain
+	// but its stellar.toml could not be read — HTTP failure, DNS failure, or a
+	// host-policy refusal — so no reciprocal claim could be tested.
+	AccountabilityReasonFetchFailed AccountabilityReason = "fetch_failed"
+	// AccountabilityReasonNotClaimed means the stellar.toml resolved but does
+	// not list this code and issuer, so the domain has not claimed this asset.
+	AccountabilityReasonNotClaimed AccountabilityReason = "not_claimed"
+	// AccountabilityReasonMismatch means the advertised home_domain and the
+	// curated directory's domain disagree about who claims the asset.
+	AccountabilityReasonMismatch AccountabilityReason = "mismatch"
+	// AccountabilityReasonNoHomeDomain means the issuer advertises no
+	// home_domain at all, so there was no claim to verify — accountability is
+	// unknown, not unverified.
+	AccountabilityReasonNoHomeDomain AccountabilityReason = "no_home_domain"
 )

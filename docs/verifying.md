@@ -10,6 +10,10 @@ encoding, [integrating.md](integrating.md) for a two-command sketch, and
 [attestation-run.md](attestation-run.md) for worked results. This document is
 the single place, in the order you run it.
 
+It starts at step 0 rather than at the registry on purpose. The procedure is
+only as good as the scanner running it, and the scanner is itself a downloaded
+binary that has to be checked before it is trusted to check anything else.
+
 ## What you are checking, and what you are not
 
 Verification establishes exactly one thing: **the severity and flags stored
@@ -23,10 +27,141 @@ evidence verifies perfectly can still be a year stale. Nothing here refreshes
 anything; see [contract-interface.md](contract-interface.md) for why
 `max_age_secs` is the caller's policy.
 
+If the attester published an offline bundle, steps 3 and 4 can be replaced by
+`assay verify -bundle`. The bundle contains the exact source bytes, so it
+answers "does this evidence produce this hash" without re-scanning or contacting
+a source. Steps 0–2 and 5–6 still apply: verify the binary, read the on-chain
+attestation, compare, and interpret. The format and what it does not prove are
+in [offline-bundle.md](offline-bundle.md).
+
+## Step 0: verify the binary before you run it
+
+Everything below runs `./assay`. If you have not checked where that binary came
+from, a matching `evidence_hash` is still a statement made by an unverified
+program: the scanner computes the hash, so whoever built the scanner chooses
+what the hash is computed over. That is the weak link this section closes, and
+it is why it is step 0 and not an appendix — **do not run step 1 or later
+before this passes.**
+
+Two separate claims, and they are not substitutes for each other:
+
+| Check | Question it answers | What it cannot tell you |
+| --- | --- | --- |
+| `sha256sum -c` | Is the file I downloaded the file the release published? | Whether the release itself is honest — both files come from the same place |
+| `gh attestation verify` | Was this exact digest built by the tagged commit in the project's own workflow? | Anything about whether the code at that commit is correct |
+
+### 0a. Download the binary and its checksum together
+
+Both assets are attached to every release. Download them into the same
+directory:
+
+```sh
+REPO=use-assay/assay
+TAG=v0.1.0                       # the release you are verifying
+
+gh release download "$TAG" --repo "$REPO" --dir ./assay-check \
+  --pattern assay --pattern assay.sha256
+```
+
+`--pattern assay.sha256` is not optional. Without it `gh release download`
+matches `assay` loosely and you can end up with only one of the two files,
+which turns every check below into a file-not-found error.
+
+### 0b. Check the checksum
+
+```sh
+cd assay-check && sha256sum -c assay.sha256
+```
+
+Produces `assay: OK`. Anything else — `FAILED`, `No such file`, or a
+`WARNING` line count — means stop.
+
+This is an integrity check, not a trust check. It detects a truncated or
+corrupted download and it detects the two files not belonging to each other.
+It does not detect a tampered release: `assay` and `assay.sha256` are uploaded
+by the same job, so anyone who can replace one can replace both. That is what
+step 0c is for, and skipping 0c leaves you with a check that only proves the
+download arrived intact.
+
+### 0c. Check the build provenance
+
+`REPO` is still set from step 0a in the same shell. On a fresh shell, set it
+again:
+
+```sh
+REPO=use-assay/assay
+gh attestation verify assay --repo "$REPO"
+```
+
+Produces `Loaded digest sha256:… for assay` and a `✓ Verification succeeded!`
+line, ending in a link to the attestation on GitHub. Anything else is a
+failure, including `✗ No attestations found for subject assay` — see below.
+
+This is the check that binds the bytes to the tag. The release workflow
+([.github/workflows/release.yml](../.github/workflows/release.yml)) signs a
+provenance statement over the binary's digest with a short-lived OIDC token
+minted for that run, and GitHub records it in a public transparency log.
+`gh` then checks that the certificate chains to GitHub's OIDC issuer, that the
+workflow it names is in *this* repository, and that the digest is the digest of
+the file you downloaded. A substituted binary has a different digest and fails.
+
+Read the output for three things, not just the last line:
+
+- the **digest** it loaded, which must equal the one `sha256sum` printed in 0b;
+- the **workflow and repository** in the certificate, which must be this repo's
+  release workflow and not a fork or a lookalike;
+- the **linked attestation**, which is worth opening once to confirm the
+  subject name is the binary you hold.
+
+`--repo` scopes the *lookup* to this repository. It does not pin *which*
+workflow in it was allowed to sign. If you want the second guarantee enforced
+rather than read off the output, ask for it:
+
+```sh
+gh attestation verify assay --repo "$REPO" \
+  --signer-workflow "$REPO/.github/workflows/release.yml"
+```
+
+This fails unless the attestation was signed by that exact workflow file, which
+is what closes the gap where a compromised or careless second workflow in the
+same repository produces a valid-looking attestation for the same subject. If
+it rejects an attestation 0c accepted, that is a finding — treat it as such
+rather than retrying without the flag.
+
+Run this as a user outside the project's own workflow. `gh` accepts a token
+belonging to the repository being verified, so a check performed from inside
+that repository's CI with its own token proves less than it appears to; for an
+independent result, use a personal account that cannot write to the repository.
+
+If `gh` reports no attestation found, the most likely cause is that you
+downloaded from a fork, or that the release predates provenance being published
+— in which case 0b is all that exists and you have no provenance claim at all.
+Record that as a limitation of your verification rather than treating the
+checksum as equivalent.
+
+### What this does and does not establish
+
+It establishes that the binary is byte-identical to one built by this
+repository's release workflow from this tag. It does **not** establish that the
+code is correct, that the build was free of a compromised dependency, or that
+the tag is the version its name suggests. Provenance says *where the bytes came
+from*, not *what the bytes do* — and what they do is what steps 1–6 below
+check, against evidence rather than against the binary's own report.
+
+To reproduce the build yourself instead of trusting the attestation, see
+"Reproducible scanner builds" in
+[CONTRIBUTING.md](../CONTRIBUTING.md) — `make build-release` is built to be
+byte-reproducible across machines.
+
 ## The procedure
 
 Each step says what it produces and how to tell it succeeded. Run them in order;
 step 3 in particular gates everything after it.
+
+Steps 1–6 assume a binary that has already passed
+[step 0](#step-0-verify-the-binary-before-you-run-it). If you skipped it, stop
+and go back — steps 3 and 4 shell out to `./assay`, so the rest of the
+procedure is measuring the trustworthiness of a program you have not checked.
 
 ### 1. Derive the asset's SAC address for the network
 
@@ -106,9 +241,23 @@ written to catch.
 # the exact bytes hashed
 ```
 
-`-raw` prints the three components step 5 compares. `-preimage` prints the
-canonical bytes those three are SHA-256 over, so the check is independent of
-Assay: the encoding is specified line by line in
+An attestation written before the current encoding was hashed over *its own*
+version's bytes, so render the recorded version rather than whatever the
+current scanner emits. `docs/deployment.md` records that version per asset; a
+recorded `v1` is reproduced with:
+
+```sh
+./assay attestation -raw -preimage-version v1 CODE-ISSUER
+# severity<TAB>flags<TAB>hash(v1)<TAB>hash(current)
+```
+
+`-raw` prints the components step 5 compares. With `-preimage-version` it
+prints a fourth field, the hash under the encoding the current binary picks,
+so you can tell an evidence change (neither matches) from a mislabelled
+version (only the fourth matches) — the same distinction
+`scripts/reproducibility.sh` reports as `MISMATCH` versus `ENCODING`.
+`-preimage` prints the canonical bytes those hashes are SHA-256 over, so the
+check is independent of Assay: the encoding is specified line by line in
 [contract-interface.md](contract-interface.md#evidence_hash-commits-to-the-claims-not-to-the-clock),
 including the escaping, the sort order of `evidence` lines, and the deliberate
 exclusion of retrieval timestamps.
@@ -132,6 +281,35 @@ Compare three pairs, all of which must match:
 The hash commits to the severity and the flags along with the evidence, so a
 matching hash with a differing severity cannot happen for an honest attestation;
 if you see it, you are comparing against the wrong record or the wrong network.
+
+### Optional: re-derive the issuer flags through a second ledger route
+
+Steps 3–5 compare Assay with itself: the same fetch-and-parse path produces both
+the evidence and the hash. A bug in that path can therefore produce a
+consistent, self-agreeing, wrong answer. `-differential` adds one independent
+reading of the fact every severity rests on — the issuer's authorization flags
+— through Soroban RPC rather than Horizon:
+
+```sh
+./assay verify -differential CODE-ISSUER
+./assay verify -differential -rpc https://rpc.example CODE-ISSUER   # non-default endpoint
+```
+
+It runs alongside steps 3–5, not instead of them, and the JSON verdict gains a
+`differential` object. The four states are the ones in
+[differential.md](differential.md):
+
+| State | What it means | What to do |
+| --- | --- | --- |
+| `agreement` | Horizon and Soroban RPC read the same flags | nothing; this is the only state that verifies the flag reading |
+| `disagreement` | both answered, differently | stop and investigate both values; verification exits 1 even if the hash agreed, and neither side is chosen for you |
+| `inconclusive_one_side` | exactly one route produced a reading | retry or verify on another host; an absence is not agreement |
+| `inconclusive_both_sides` | neither route produced a reading | nothing about the flags was verified; retry when the sources recover |
+
+An inconclusive differential read does not change the hash verdict's exit code,
+but it must never be read as agreement. A disagreement is a hard failure: it is
+the one signal that no single-source comparison can produce, and it can mean
+either the scanner misread the ledger or one of the two services is wrong.
 
 ### 6. Interpret
 
@@ -203,13 +381,15 @@ attested_at      1786771651  (2026-08-15T05:27:31Z)
 
 Step 1 must re-derive `CAOM5NKB…`; step 2 must read back severity `3`, flags
 `6`, and that hash; steps 3–4 must produce a *complete* report whose `-raw`
-output is
+output under the recorded version is
 
-```
-3	6	ca9b13a66f3a0a4b43d66dea29a505658447e08eee200d2bdb5e66aa1065fb4d
+```sh
+./assay attestation -raw -preimage-version v1 USDZ-GAKTLPC4ZV37SSCITQ5IS5AQ4WPF4CF4VZJQPPAROSGXMYOATF5U6XPR
+# 3	6	ca9b13a66f3a0a4b43d66dea29a505658447e08eee200d2bdb5e66aa1065fb4d	<current-encoding hash>
 ```
 
-Step 5 matches on all three, and step 6 returns **valid**. The reason `USDZ`
+Step 5 matches on severity, flags and the first hash, and step 6 returns
+**valid**. The reason `USDZ`
 reproduces reliably is that its evidence carries no transport error: its domain
 `zeam.money` answers, so nothing machine-dependent enters the preimage. That is
 not true of every attested asset — see cause 3 above.
@@ -226,13 +406,30 @@ follows the steps for USDZ and confirms the re-scan reproduces the hash recorded
 in [deployment.md](deployment.md). If a step cannot be followed without reading
 the source, that is a defect in this document.
 
+Step 0 is verified the other way round, by construction rather than by
+following it: it names the two assets
+[release.yml](../.github/workflows/release.yml) publishes for every tag, and the
+`gh` subcommands are the documented interface of GitHub's artifact attestations
+rather than anything from this repository. What a reviewer *can* check without
+a release to hand is that the release assets and the documented commands agree
+— `assay` and `assay.sha256` are both attached by the `publish` step, and the
+`attest build provenance` step runs before it, so a release that went up
+without an attestation does not exist. Confirming that against a real tag is
+left to the first release cut, which is recorded here as **not yet
+verified**: this document's step 0 has not been executed end to end against a
+published release, because no release has been published yet (#278).
+
 ## Related
 
 - [contract-interface.md](contract-interface.md) — the `evidence_hash` encoding
   and the `get_safety` ABI.
+- [offline-bundle.md](offline-bundle.md) — the archive that lets steps 3–4 be
+  checked without a network, and its redistribution rules.
 - [attestation-run.md](attestation-run.md) — every asset scanned and the
   reproducibility audit behind the #24 caveat.
 - [integrating.md](integrating.md) — how a contract consumes an attestation, and
   the two-command version of this check.
 - [deployment.md](deployment.md) — addresses, transaction hashes, and the
   attested-asset table this example is drawn from.
+- [SECURITY.md](../SECURITY.md) — the reporting path if a check here fails in a
+  way that looks like tampering rather than drift.

@@ -82,7 +82,7 @@ func EvaluateFreshness(rep *Report, asOf time.Time, window time.Duration) *Repor
 		return rep
 	}
 
-	age := asOf.Sub(rep.ScannedAt)
+	age := asOf.Sub(rep.ScannedAt.Time())
 	if age > window {
 		rep.Stale = true
 		rep.State = StateStale

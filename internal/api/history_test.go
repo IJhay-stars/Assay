@@ -138,6 +138,10 @@ func TestHistoryRejectsBadInput(t *testing.T) {
 		{"empty asset", "/api/v1/history?asset="},
 		{"not an asset", "/api/v1/history?asset=hello"},
 		{"bad issuer", "/api/v1/history?asset=AQUA-NOPE"},
+		// The native asset is refused with the same explicit explanation the
+		// scan endpoint gives; docs/api.md documents both.
+		{"native asset", "/api/v1/history?asset=native"},
+		{"XLM", "/api/v1/history?asset=XLM"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()

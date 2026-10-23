@@ -35,7 +35,7 @@ func TestFromReportRefusesStaleReport(t *testing.T) {
 	t.Run("evaluated stale via freshness window", func(t *testing.T) {
 		now := time.Date(2026, 9, 25, 12, 0, 0, 0, time.UTC)
 		rep := report(func(r *mechanics.Report) {
-			r.ScannedAt = now.Add(-48 * time.Hour)
+			r.ScannedAt = mechanics.NewCanonicalTime(now.Add(-48 * time.Hour))
 		})
 		mechanics.EvaluateFreshness(rep, now, 24*time.Hour)
 

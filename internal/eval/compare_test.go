@@ -123,8 +123,12 @@ func TestRunRecordsPerCheckOutput(t *testing.T) {
 	if rec.Version == "" {
 		t.Fatal("record carries no version identity")
 	}
-	if len(rec.Subjects) != len(eval.Corpus()) {
-		t.Fatalf("recorded %d subjects, corpus has %d", len(rec.Subjects), len(eval.Corpus()))
+	labels, err := eval.Corpus("../mechanics/testdata")
+	if err != nil {
+		t.Fatalf("corpus: %v", err)
+	}
+	if len(rec.Subjects) != len(labels) {
+		t.Fatalf("recorded %d subjects, corpus has %d", len(rec.Subjects), len(labels))
 	}
 	for _, s := range rec.Subjects {
 		if len(s.CheckSet) == 0 {

@@ -193,10 +193,10 @@ func TestSuppressPreBindingAttestationIsUnknown(t *testing.T) {
 	}
 
 	// It must still produce the v1 bytes, so its historical hash reproduces.
-	if ver := attest.Preimage(&legacy); !hasPrefix(ver, attest.PreimageVersion+"\n") {
+	if ver := mustPreimage(t, &legacy); !hasPrefix(ver, attest.PreimageVersion+"\n") {
 		t.Fatalf("pre-binding report is not written under the v1 encoding: %q", ver)
 	}
-	if ver := attest.Preimage(rep); !hasPrefix(ver, attest.PreimageVersionCheckSet+"\n") {
+	if ver := mustPreimage(t, rep); !hasPrefix(ver, attest.PreimageVersionCheckSet+"\n") {
 		t.Fatalf("bound report is not written under the v2 encoding: %q", ver)
 	}
 }
