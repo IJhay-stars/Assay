@@ -90,6 +90,9 @@ pub const CAPABILITY_MASK: u32 = MECH_AUTH_REQUIRED | MECH_AUTH_REVOCABLE | MECH
 /// this mask has `severity >= 3` by construction.
 pub const CONFISCATION_MASK: u32 = MECH_CLAWBACK_ENABLED;
 
+/// The maximum number of attestors accepted for quorum evaluation.
+pub const MAX_ATTESTORS: u32 = 16;
+
 // ---------------------------------------------------------------------------
 // The policy helper.
 // ---------------------------------------------------------------------------

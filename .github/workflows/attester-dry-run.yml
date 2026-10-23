@@ -1,0 +1,86 @@
+name: Attester dry-run
+
+# Shows, in review, what a scanner change would do to the attestations on
+# chain (#438). The attester dry-run runs over committed fixtures
+# (.github/attester/fixtures.json), never live sources, on both the PR's base
+# and its head, and the per-asset diff of severity, flags and evidence hash is
+# posted as the job summary.
+#
+# It is informational: a changed attestation is often the point of a scanner
+# PR, so a diff never fails the job. Only an operational failure of the head
+# dry-run (exit 2: config or fixture error) does. Refusals (exit 1) are
+# expected here; the fixture set deliberately includes an undetermined
+# report. See docs/attester.md.
+on:
+  pull_request:
+    paths:
+      - internal/mechanics/**
+      - internal/attest/**
+      - internal/scan/**
+      - internal/attester/**
+      - internal/sac/**
+      - cmd/assay-attester/**
+      - .github/attester/**
+      - .github/workflows/attester-dry-run.yml
+
+permissions:
+  contents: read
+
+jobs:
+  dry-run:
+    name: Attester dry-run diff
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Pinned to the module's own version, as in ci.yml.
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: dry-run head
+        run: |
+          set +e
+          go run ./cmd/assay-attester --config .github/attester/fixtures.json --dry-run --once \
+            > "$RUNNER_TEMP/head.tsv" 2> "$RUNNER_TEMP/head.err"
+          rc=$?
+          set -e
+          cat "$RUNNER_TEMP/head.tsv"
+          if [ "$rc" -ge 2 ]; then
+            cat "$RUNNER_TEMP/head.err"
+            echo "::error title=Attester dry-run::The head dry-run failed operationally (exit $rc). See the log."
+            exit 1
+          fi
+
+      - name: dry-run base
+        id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/base" "$BASE_SHA"
+          note=""
+          if [ ! -d "$RUNNER_TEMP/base/cmd/assay-attester" ] || [ ! -f "$RUNNER_TEMP/base/.github/attester/fixtures.json" ]; then
+            note="the base commit has no attester dry-run to compare against."
+          else
+            set +e
+            (cd "$RUNNER_TEMP/base" && go run ./cmd/assay-attester --config .github/attester/fixtures.json --dry-run --once) \
+              > "$RUNNER_TEMP/base.tsv" 2> "$RUNNER_TEMP/base.err"
+            rc=$?
+            set -e
+            if [ "$rc" -ge 2 ]; then
+              cat "$RUNNER_TEMP/base.err"
+              note="the base dry-run failed operationally (exit $rc), so there is nothing to diff against."
+            fi
+          fi
+          echo "note=$note" >> "$GITHUB_OUTPUT"
+
+      - name: diff into the job summary
+        env:
+          BASE_NOTE: ${{ steps.base.outputs.note }}
+        run: |
+          go run ./cmd/assay-attester diff --base-note "$BASE_NOTE" \
+            "$RUNNER_TEMP/base.tsv" "$RUNNER_TEMP/head.tsv" >> "$GITHUB_STEP_SUMMARY"

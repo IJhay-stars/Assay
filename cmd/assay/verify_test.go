@@ -74,8 +74,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		rep, params := attestableReport(t, nil)
 		chain := chainFrom(params, verifyTableTime.Add(-time.Hour).Unix(), false)
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -89,8 +91,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		// One second under the age limit: matching and fresh enough.
 		chain := chainFrom(params, verifyTableTime.Add(-59*time.Minute).Unix(), false)
 		res, err := verifyAsset(ctx, asset, 3600, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -103,8 +107,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		rep, params := attestableReport(t, nil)
 		chain := chainFrom(params, verifyTableTime.Add(-2*time.Hour).Unix(), false)
 		res, err := verifyAsset(ctx, asset, 3600, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -121,8 +127,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		chain := chainFrom(params, verifyTableTime.Unix(), false)
 		chain.Severity = 2 // anything but the scanned level
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -139,8 +147,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		chain := chainFrom(params, verifyTableTime.Unix(), false)
 		chain.EvidenceHash = strings.Repeat("ab", 32)
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -158,8 +168,10 @@ func TestVerifyOutcomes(t *testing.T) {
 		chain.Severity = 1
 		chain.Flags = 0
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -174,8 +186,10 @@ func TestVerifyOutcomes(t *testing.T) {
 	t.Run("absent", func(t *testing.T) {
 		rep, _ := attestableReport(t, nil)
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return nil, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return nil, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -205,10 +219,12 @@ func TestVerifyOutcomes(t *testing.T) {
 		// report would compute. It must not matter: an undetermined scan can
 		// never produce agreement.
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
 			func(mechanics.Asset) (*OnChainSafety, error) {
 				return &OnChainSafety{Severity: 1, Flags: 0, AttestedAt: verifyTableTime.Unix()}, nil
-			})
+			}, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -231,8 +247,10 @@ func TestVerifyOutcomes(t *testing.T) {
 			UndeterminedChecks: []string{},
 		}
 		res, err := verifyAsset(ctx, asset, 0, verifyTableTime,
-			func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-			func(mechanics.Asset) (*OnChainSafety, error) { return nil, nil })
+			func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+				return rep, nil, nil
+			},
+			func(mechanics.Asset) (*OnChainSafety, error) { return nil, nil }, "")
 		if err != nil {
 			t.Fatalf("verifyAsset: %v", err)
 		}
@@ -259,19 +277,23 @@ func TestVerifyScanErrorIsInfrastructure(t *testing.T) {
 	asset := mechanics.Asset{Code: verifyTestAssetCode, Issuer: verifyTestAssetIssuer}
 	boom := errors.New("horizon unreachable")
 	_, err := verifyAsset(context.Background(), asset, 0, verifyTableTime,
-		func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return nil, boom },
+		func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+			return nil, nil, boom
+		},
 		func(mechanics.Asset) (*OnChainSafety, error) {
 			t.Fatal("chain must not be read when the scan failed")
 			return nil, nil
-		})
+		}, "")
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the scan error wrapped", err)
 	}
 
 	rep, _ := attestableReport(t, nil)
 	_, err = verifyAsset(context.Background(), asset, 0, verifyTableTime,
-		func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return rep, nil },
-		func(mechanics.Asset) (*OnChainSafety, error) { return nil, boom })
+		func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+			return rep, nil, nil
+		},
+		func(mechanics.Asset) (*OnChainSafety, error) { return nil, boom }, "")
 	if !errors.Is(err, boom) {
 		t.Fatalf("err = %v, want the chain-read error wrapped", err)
 	}
@@ -297,11 +319,13 @@ func TestVerifyMatchesAnOlderEncoding(t *testing.T) {
 
 	read := func(mechanics.Asset) (*OnChainSafety, error) { return chain, nil }
 	asset := mechanics.Asset{Code: verifyTestAssetCode, Issuer: verifyTestAssetIssuer}
-	scanOf := func(r *mechanics.Report) scanFunc {
-		return func(context.Context, mechanics.Asset) (*mechanics.Report, error) { return r, nil }
+	scanOf := func(r *mechanics.Report) verifyScanFunc {
+		return func(context.Context, mechanics.Asset) (*mechanics.Report, *mechanics.Subject, error) {
+			return r, nil, nil
+		}
 	}
 
-	res, err := verifyAsset(context.Background(), asset, 0, verifyTableTime, scanOf(v4Report), read)
+	res, err := verifyAsset(context.Background(), asset, 0, verifyTableTime, scanOf(v4Report), read, "")
 	if err != nil {
 		t.Fatalf("verifyAsset: %v", err)
 	}
@@ -316,7 +340,7 @@ func TestVerifyMatchesAnOlderEncoding(t *testing.T) {
 		bound(r)
 		r.Evidence = []mechanics.Evidence{{Source: "horizon", URL: "https://h", Claim: "moved"}}
 	})
-	res, err = verifyAsset(context.Background(), asset, 0, verifyTableTime, scanOf(changed), read)
+	res, err = verifyAsset(context.Background(), asset, 0, verifyTableTime, scanOf(changed), read, "")
 	if err != nil {
 		t.Fatalf("verifyAsset: %v", err)
 	}

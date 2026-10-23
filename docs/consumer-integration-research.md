@@ -1,0 +1,42 @@
+# Consumer integration research
+
+- **Reviewed:** 2026-09-30
+- **Question:** Which `get_safety` consumer has the strongest evidence for a reference integration?
+
+## Finding
+
+**No validated consumer need is established by the inspected sources. Do not build an adapter yet.** The strongest candidate to validate next is a lending pool's *reserve-onboarding* decision, using Blend as the concrete protocol to discuss with. Its deployed code has an explicit per-asset admin listing operation and separate risk parameters, so the point where an issuer-risk signal might help is clear. That is evidence of a plausible integration point, not evidence that Blend's team wants or would use Assay.
+
+This distinction matters: the goal is to find a consumer willing to validate the policy, not to turn a public contract entrypoint into assumed demand.
+
+## Comparison
+
+| Candidate | What the protocol needs | Does Assay's current interface provide it? | What would have to change? |
+| --- | --- | --- | --- |
+| **Asset allowlist / supported-asset catalog** (Soroswap as a counterexample) | A project operating a curated list must choose its own admission rules and maintain the approved addresses. If issuer powers are part of that policy, it needs current per-asset issuer-control and reputation data. | `get_safety` supplies severity, mechanic flags, evidence hash, and attestation time; `is_safe` and `is_safe_masked` provide fail-closed gates. It does **not** provide an allowlist, token metadata, or the list owner's policy. | No Assay change is indicated for an issuer-risk criterion. The consumer would need to opt into that criterion and implement list governance/update behavior. Soroswap's factory itself does not provide evidence of this need: its `create_pair` path rejects identical or already-created pairs, then creates the pair; the code does not screen token issuer properties. Its repository publishes a mainnet factory address, so this is deployed behavior, but permissionless pair creation is not a request for an allowlist. |
+| **Vault deposit gate** (DeFindex vault implementation) | A vault takes custody of underlying assets. It needs to know which configured assets users may transfer in, and whether the issuer can freeze or claw back balances held by the vault. DeFindex's deposit path uses amount vectors aligned to managed assets, transfers those assets into the vault, then mints shares. | The flags identify issuer controls, severity carries the broader registry assessment, and `attested_at` permits freshness enforcement. Unknown assets fail closed through the existing gate methods. These are sufficient for an issuer-control check, not for judging strategy, price, liquidity, or share valuation. | A vault consumer would need to configure a registry and policy and check the configured assets before admitting deposits (and decide how revocation or stale attestations affect an existing vault). No new Assay field is required for that check. The reviewed DeFindex mainnet manifest includes a vault Wasm hash but no vault instance address; this research therefore treats its exact live deployment as unverified rather than claiming a deployed Assay prospect. |
+| **Lending collateral acceptance** (Blend) | A pool must decide which assets become reserves and how each is valued as collateral or liability. Blend exposes an admin `queue_set_reserve(asset, metadata)` operation. Its `ReserveConfig` includes collateral and liability factors, utilization limits, decimals, and interest-rate parameters; its pool-creator guidance says these are per-asset controls and discusses lowering collateral factors for riskier assets. | Assay can add a distinct issuer-control/reputation signal using flags, severity, evidence hash, and freshness. It cannot set or replace collateral factors, provide oracle prices, measure liquidity/volatility, or establish liquidation feasibility. Its output is complementary to Blend's risk configuration, not a substitute. | A consumer would need an explicit policy at reserve onboarding (for example, fail closed on missing/stale attestations, choose forbidden mechanic bits, and decide how severity affects approval), then call the registry before accepting the reserve. Existing reserve economics and oracle/liquidation review remain necessary. If the pool already restricts collateral to configured reserves, a second per-user collateral gate is not the first integration point to build. |
+
+## Interface and policy implications
+
+The current ABI already exposes `get_safety(asset)`, `is_safe(asset, max_severity, max_age_secs)`, and `is_safe_masked(asset, forbidden_mask, max_age_secs)`. `get_safety` includes `severity`, `flags`, `evidence_hash`, and `attested_at`. The masked helper fails closed for an unattested or stale asset and applies the caller's forbidden-bit mask, but it does not apply a severity ceiling; a policy requiring both axes can inspect `get_safety` or compose the existing checks.
+
+That covers the consumer-specific issuer policy contemplated by [issue #12](https://github.com/use-assay/Assay/issues/12). The sources inspected here do not justify another registry interface variant. The missing input is consumer policy and validation, not an Assay API field.
+
+## Recommendation and next implementation
+
+Prioritize **customer discovery with a Blend pool creator or administrator** before building anything. Blend is the best *candidate to validate first* against these criteria:
+
+1. The official project documents mainnet pools and publishes their contract addresses.
+2. The source exposes a concrete, per-asset admission operation controlled by the pool admin.
+3. Per-asset risk configuration is already explicit, making it possible to ask exactly how issuer powers should affect onboarding.
+4. Assay's contribution is bounded: issuer powers and registry reputation, alongside rather than instead of oracle and economic risk controls.
+
+No Blend or DeFindex demand for Assay was found in the inspected contract paths, and Soroswap's permissionless factory points away from an allowlist requirement. Until a protocol owner confirms the need and chooses behavior for unknown, stale, and flagged assets, **no reference adapter is unblocked**. If Blend confirms, the first implementation should demonstrate a reserve-onboarding check around `queue_set_reserve`, not invent a generic adapter or claim that Assay evaluates collateral quality. Otherwise, keep the existing worked example generic and record the consumer need as unknown.
+
+## Sources inspected
+
+- [Soroswap factory `create_pair` at the inspected revision](https://github.com/soroswap/core/blob/6eade008ee6794075ad941609e0fef0d1124d3eb/contracts/factory/src/lib.rs#L264-L301); [mainnet factory manifest](https://github.com/soroswap/core/blob/6eade008ee6794075ad941609e0fef0d1124d3eb/public/mainnet.contracts.json); [factory on Stellar Expert](https://stellar.expert/explorer/public/contract/CA4HEQTL2WPEUYKYKCDOHCDNIV4QHNJ7EL4J4NQ6VADP7SYHVRYZ7AW2).
+- [DeFindex vault deposit processing](https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/apps/contracts/vault/src/deposit.rs#L11-L60); [asset/strategy model](https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/apps/contracts/common/src/models.rs#L11-L16); [mainnet contract manifest](https://github.com/paltalabs/defindex/blob/a0fcabfae38f1c7b0c9c2f10ff51d225f8edc2f1/apps/contracts/public/mainnet.contracts.json).
+- [Blend reserve configuration](https://github.com/blend-capital/blend-contracts/blob/895845ff0afb36f4a47d88a139da060d56c6592a/pool/src/storage.rs#L41-L56); [admin reserve interface](https://github.com/blend-capital/blend-contracts/blob/895845ff0afb36f4a47d88a139da060d56c6592a/pool/src/contract.rs#L59-L70); [pool risk-parameter guidance](https://github.com/blend-capital/blend-docs/blob/f0d38e0f6f033499fbc69b3d73fd9f1517d4e9ba/pool-creators/adding-assets/risk-parameters.md#L1-L35); [mainnet deployment list](https://github.com/blend-capital/blend-docs/blob/f0d38e0f6f033499fbc69b3d73fd9f1517d4e9ba/mainnet-deployments.md#L13-L33), including the [YieldBlox pool on Stellar Expert](https://stellar.expert/explorer/public/contract/CBP7NO6F7FRDHSOFQBT2L2UWYIZ2PU76JKVRYAQTG3KZSQLYAOKIF2WB).
+- Assay's local [contract interface](contract-interface.md) and [integration guide](integrating.md), checked against the current safety registry implementation.

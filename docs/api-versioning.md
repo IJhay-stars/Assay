@@ -82,6 +82,57 @@ field means without a version bump. A consumer that cached a `severity` under
 the old meaning would keep acting on it after the meaning moved, and no version
 number would have warned it.
 
+## The golden scan response
+
+A policy nobody can break accidentally is only as good as its test. The full
+JSON shape of `GET /api/v1/scan` is pinned by a committed golden file, so the
+"removing a field is breaking" rule above is enforced by CI rather than only
+written down.
+
+- `internal/api/testdata/scan-usdc-revocable-regulated.json` is the rendered
+  response for the `usdc-revocable-regulated` fixture subject — a real pubnet
+  capture held in `internal/mechanics/testdata/` — with object keys sorted and
+  the scan clock fixed (`scan.Scanner.Now`), so the file is byte-stable.
+- `internal/api/golden_test.go` renders that subject through the production
+  handler and compares the response against the file, byte for byte.
+
+Run it:
+
+```sh
+go test ./internal/api/ -run Golden -v
+```
+
+The comparison enforces this page's rule directly: removing a field, renaming
+it, or changing its type fails the test and names the exact JSON paths that
+moved. Adding a field fails it too — deliberately, because additions are only
+allowed through an explicit golden update (below), so every new field is a
+reviewed, committed decision rather than a silent one.
+
+### Updating the golden file
+
+1. Make the code change. If it removes, renames, or changes the type of any
+   field, bump `schema_version` — and the route version, per the rule above —
+   *first*. The golden must never be regenerated to bless a breaking change
+   that carries no version bump.
+2. Regenerate:
+
+   ```sh
+   go test ./internal/api/ -run Golden -update
+   ```
+
+3. Review the diff before committing:
+
+   ```sh
+   git diff internal/api/testdata
+   ```
+
+   Every changed line is a change to the public response shape. An added path
+   should be the additive change you intended; a removed or changed path means
+   the version bump from step 1 is missing.
+4. Commit the regenerated golden together with the code change and (when
+   applicable) the version bump, so the golden's own diff is the reviewable
+   record of what moved.
+
 ## Deprecation
 
 When a version is replaced, it is retired in stages, not switched off:
@@ -137,4 +188,11 @@ Every route and every version claim is greppable:
 
 ```sh
 grep -rn 'api/v1' docs/ README.md
+```
+
+The response shape itself is pinned by the golden test ("The golden scan
+response" above):
+
+```sh
+go test ./internal/api/ -run Golden -v
 ```

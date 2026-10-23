@@ -3,6 +3,7 @@ package attest_test
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -415,4 +416,114 @@ func TestEveryVectorFileIsPinned(t *testing.T) {
 			t.Errorf("vector %q has no matching .digest file", stem)
 		}
 	}
+}
+
+type onchainVector struct {
+	ExpectedDigest  string `json:"expected_digest"`
+	Transaction     string `json:"transaction"`
+	DeploymentAsset string `json:"deployment_asset"`
+}
+
+func TestOnchainVectorProvenance(t *testing.T) {
+	manifestBytes, err := os.ReadFile(filepath.Join("testdata", "vectors", "vectors.json"))
+	if err != nil {
+		t.Fatalf("read vector provenance manifest: %v", err)
+	}
+	var manifest map[string]onchainVector
+	if err := json.Unmarshal(manifestBytes, &manifest); err != nil {
+		t.Fatalf("decode vector provenance manifest: %v", err)
+	}
+	readme, err := os.ReadFile(filepath.Join("testdata", "vectors", "README.md"))
+	if err != nil {
+		t.Fatalf("read vector README: %v", err)
+	}
+	deployment, err := os.ReadFile(filepath.Join("..", "..", "docs", "deployment.md"))
+	if err != nil {
+		t.Fatalf("read deployment record: %v", err)
+	}
+
+	for name := range vectorReports {
+		if !strings.HasSuffix(name, "-onchain") {
+			continue
+		}
+		provenance, ok := manifest[name]
+		if !ok {
+			t.Errorf("on-chain vector %q has no provenance manifest entry", name)
+			continue
+		}
+		if provenance.ExpectedDigest == "" || provenance.Transaction == "" || provenance.DeploymentAsset == "" {
+			t.Errorf("on-chain vector %q has incomplete provenance: %+v", name, provenance)
+			continue
+		}
+
+		digestBytes, err := os.ReadFile(filepath.Join("testdata", "vectors", name+".digest"))
+		if err != nil {
+			t.Errorf("read %q digest: %v", name, err)
+			continue
+		}
+		if got := strings.TrimSpace(string(digestBytes)); got != provenance.ExpectedDigest {
+			t.Errorf("%q digest = %s, manifest expects %s", name, got, provenance.ExpectedDigest)
+		}
+		if !strings.Contains(string(readme), provenance.ExpectedDigest) {
+			t.Errorf("vector README does not record the full digest for %q", name)
+		}
+		if !strings.Contains(string(readme), provenance.Transaction) {
+			t.Errorf("vector README does not record the transaction for %q", name)
+		}
+
+		row, ok := findMarkdownTableRow(string(deployment), "evidence_hash", "Asset", provenance.DeploymentAsset)
+		if !ok {
+			t.Errorf("deployment table has no evidence_hash row for %q", provenance.DeploymentAsset)
+			continue
+		}
+		wantDeploymentDigest := provenance.ExpectedDigest[:8] + "…" + provenance.ExpectedDigest[len(provenance.ExpectedDigest)-6:]
+		if row["evidence_hash"] != wantDeploymentDigest {
+			t.Errorf("deployment digest for %s = %q, want %q from vector manifest",
+				provenance.DeploymentAsset, row["evidence_hash"], wantDeploymentDigest)
+		}
+	}
+
+	for name := range manifest {
+		if _, ok := vectorReports[name]; !ok {
+			t.Errorf("provenance manifest names unknown vector %q", name)
+		}
+	}
+}
+
+func findMarkdownTableRow(document, requiredHeader, keyHeader, key string) (map[string]string, bool) {
+	lines := strings.Split(document, "\n")
+	for headerIndex, line := range lines {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		headers := markdownTableCells(line)
+		columns := make(map[string]int, len(headers))
+		for index, header := range headers {
+			columns[header] = index
+		}
+		keyIndex, hasKey := columns[keyHeader]
+		if _, hasRequired := columns[requiredHeader]; !hasKey || !hasRequired {
+			continue
+		}
+		for rowIndex := headerIndex + 2; rowIndex < len(lines) && strings.HasPrefix(strings.TrimSpace(lines[rowIndex]), "|"); rowIndex++ {
+			cells := markdownTableCells(lines[rowIndex])
+			if keyIndex >= len(cells) || cells[keyIndex] != key || len(cells) != len(headers) {
+				continue
+			}
+			row := make(map[string]string, len(headers))
+			for index, header := range headers {
+				row[header] = cells[index]
+			}
+			return row, true
+		}
+	}
+	return nil, false
+}
+
+func markdownTableCells(line string) []string {
+	parts := strings.Split(strings.Trim(strings.TrimSpace(line), "|"), "|")
+	for index := range parts {
+		parts[index] = strings.Trim(strings.TrimSpace(parts[index]), "` ")
+	}
+	return parts
 }

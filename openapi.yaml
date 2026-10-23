@@ -2,7 +2,11 @@ openapi: 3.0.3
 info:
   title: Assay API
   version: 1.0.0
-  description: Stellar asset trap scanner API contract.
+  description: >-
+    Stellar asset trap scanner API contract. This document is the schema
+    source for the surface `assay serve` registers; docs/api.md is the human
+    reference for the same endpoints, and docs/api-versioning.md states what
+    the route version and `schema_version` promise.
 paths:
   /api/v1/scan:
     get:
@@ -19,7 +23,18 @@ paths:
           required: false
           schema:
             type: string
-          description: Optional holder address to check trustline / balance state
+            pattern: '^G[A-Z2-7]{55}$'
+          example: GBRPYHIL2CI3FNQ4BXLFMNDLFJUNPU2HY3ZMFSHONUCEOASW7QC7OX2H
+          description: >-
+            Optional holder account ID (G..., 56 characters). Answers "am I
+            exposed?" for that account: the scan reads the holder's trustline
+            and adds a "trustline" finding with the trustline's
+            is_clawback_enabled and is_authorized flags, adding the
+            trustline_clawback_enabled / trustline_deauthorized mechanics when
+            set. Severity never changes (it is issuer-level). A holder that does
+            not hold the asset, or whose trustline cannot be read, makes the
+            report undetermined. An invalid value is a 400 before any fetch; an
+            empty value is the same as omitting it. See docs/api.md.
       responses:
         '200':
           description: Successful scan report. May indicate degraded state via header.
@@ -32,25 +47,11 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  severity:
-                    type: string
-                  accountability:
-                    type: string
-                  undetermined:
-                    type: boolean
-                  undetermined_checks:
-                    type: array
-                    items:
-                      type: string
-                  findings:
-                    type: array
-                    items:
-                      type: object
+                $ref: '#/components/schemas/Report'
         '400':
           description: >-
-            Invalid request parameters, or an asset identifier naming the
+            Invalid request parameters (including a holder that is not a G...
+            account ID), or an asset identifier naming the
             network's native asset (native/XLM), which has no issuer and no
             authorization flags and is therefore never scanned or attested.
         '404':
@@ -77,39 +78,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [asset, state, count, observations, transitions, retention]
-                properties:
-                  asset:
-                    type: object
-                    properties:
-                      code:
-                        type: string
-                      issuer:
-                        type: string
-                  state:
-                    type: string
-                    enum: [valid, unknown, missing]
-                  reason:
-                    type: string
-                    description: Present when state is not valid.
-                  count:
-                    type: integer
-                  observations:
-                    type: array
-                    items:
-                      type: object
-                  transitions:
-                    type: array
-                    items:
-                      type: object
-                  latest_at:
-                    type: string
-                    format: date-time
-                  latest_age_secs:
-                    type: integer
-                  retention:
-                    type: integer
+                $ref: '#/components/schemas/History'
         '400':
           description: Missing or invalid asset, or the network's native asset.
   /api/v1/exposure:
@@ -150,49 +119,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                required: [account, total, limit, count, assets]
-                properties:
-                  account:
-                    type: string
-                  total:
-                    type: integer
-                    description: Credit trustlines on the account (whole listing, not this page).
-                  limit:
-                    type: integer
-                    description: Page size actually applied.
-                  count:
-                    type: integer
-                  next_cursor:
-                    type: integer
-                    description: Cursor for the next page; absent on the last page.
-                  assets:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        asset:
-                          type: object
-                          properties:
-                            code:
-                              type: string
-                            issuer:
-                              type: string
-                        severity:
-                          type: string
-                          enum: [clear, low, medium, high, critical, unevaluated]
-                        undetermined:
-                          type: boolean
-                        undetermined_checks:
-                          type: array
-                          items:
-                            type: string
-                        finding:
-                          type: object
-                          description: Holder-trustline finding; absent when that asset's scan failed.
-                        reason:
-                          type: string
-                          description: Why this asset's scan failed; present only when finding is absent.
+                $ref: '#/components/schemas/Exposure'
         '400':
           description: Missing or invalid account, limit, or cursor.
         '404':
@@ -211,16 +138,7 @@ paths:
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  scan_outcomes:
-                    type: object
-                    additionalProperties:
-                      type: integer
-                  source_failures:
-                    type: object
-                    additionalProperties:
-                      type: integer
+                $ref: '#/components/schemas/Metrics'
   /healthz:
     get:
       summary: Liveness check
@@ -264,6 +182,358 @@ paths:
                 type: string
 components:
   schemas:
+    Severity:
+      type: string
+      description: >-
+        The severity level name. The order is part of the contract: a level
+        never renumbers within a schema version (docs/api-versioning.md).
+        "unevaluated" means the issuer flags were never read and is never a
+        permissive answer.
+      enum: [clear, low, medium, high, critical, unevaluated]
+    Accountability:
+      type: string
+      description: Whether the issuer's advertised home domain publicly claims the asset.
+      enum: [unknown, unverified, verified]
+    AccountabilityReason:
+      type: string
+      enum: [fetch_failed, not_claimed, mismatch, no_home_domain]
+      description: >-
+        Why accountability was not verified: the stellar.toml could not be
+        fetched, it was fetched but does not claim the asset, it disagrees with
+        the curated directory, or the issuer has no home_domain. Absent when
+        the verdict needs no sub-reason (a verified claim).
+    Asset:
+      type: object
+      required: [code, issuer]
+      properties:
+        code:
+          type: string
+        issuer:
+          type: string
+    Evidence:
+      type: object
+      description: One attributed claim from a named consumed source.
+      required: [source, url, claim, retrieved_at, attempted]
+      properties:
+        source:
+          type: string
+        url:
+          type: string
+          description: >-
+            The claim's location: the FINAL location after redirects on a
+            successful fetch, the requested location on a failed one.
+        requested_url:
+          type: string
+          description: The SEP-1 well-known location derived from home_domain.
+        claim:
+          type: string
+        retrieved_at:
+          type: string
+          format: date-time
+        attempted:
+          type: boolean
+          description: >-
+            True when retrieved_at is the time the fetch was ATTEMPTED rather
+            than the time the source answered (the fetch failed).
+        refused:
+          type: boolean
+          description: >-
+            True when the failure is a host-policy refusal: the scanner
+            declined to make the request at all.
+    Finding:
+      type: object
+      description: One check's verdict over the asset.
+      required: [check, title, severity, escalation, undetermined, reasoning, mechanics, evidence]
+      properties:
+        check:
+          type: string
+        title:
+          type: string
+        severity:
+          $ref: '#/components/schemas/Severity'
+        escalation:
+          type: boolean
+          description: True when the severity comes from reputation rather than issuer capability.
+        undetermined:
+          type: boolean
+          description: >-
+            True when this check could not reach a conclusion because a source
+            it depends on was unreachable — not the same as finding nothing.
+        undetermined_by_source:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of undetermined checks per source name.
+        undetermined_rate:
+          type: string
+          description: '"numerator/denominator" over the checks run for this asset.'
+        reasoning:
+          type: string
+        mechanics:
+          type: array
+          items:
+            type: string
+          description: The capability bits this check observed, as names.
+        accountability:
+          $ref: '#/components/schemas/Accountability'
+        accountability_reason:
+          $ref: '#/components/schemas/AccountabilityReason'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+    Report:
+      type: object
+      description: >-
+        The scan report, also printed by `assay scan`. `schema_version` is the
+        payload contract version, independent of the /api/v1 route version.
+      required:
+        - schema_version
+        - asset
+        - severity
+        - base_severity
+        - escalated
+        - accountability
+        - state
+        - stale
+        - undetermined
+        - undetermined_checks
+        - mechanics
+        - findings
+        - evidence
+        - scanned_at
+      properties:
+        schema_version:
+          type: integer
+          description: Version of the report JSON shape; additive changes do not bump it.
+        asset:
+          $ref: '#/components/schemas/Asset'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        base_severity:
+          $ref: '#/components/schemas/Severity'
+        escalated:
+          type: boolean
+          description: True when reputation raised the level above base_severity.
+        accountability:
+          $ref: '#/components/schemas/Accountability'
+        accountability_reason:
+          $ref: '#/components/schemas/AccountabilityReason'
+        state:
+          type: string
+          enum: [valid, unknown, stale]
+        stale:
+          type: boolean
+        stale_reason:
+          type: string
+        undetermined:
+          type: boolean
+        undetermined_checks:
+          type: array
+          items:
+            type: string
+        undetermined_by_source:
+          type: object
+          additionalProperties:
+            type: integer
+        undetermined_rate:
+          type: string
+        network:
+          type: string
+          description: The Stellar network passphrase the facts were read from.
+        checks:
+          type: array
+          items:
+            type: string
+          description: The sorted IDs of the checks the engine actually ran.
+        scanner_bound:
+          type: boolean
+          description: True when the report binds attest.ScannerIdentity into its preimage.
+        mechanics:
+          type: array
+          items:
+            type: string
+        findings:
+          type: array
+          items:
+            $ref: '#/components/schemas/Finding'
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+        observation_window_start:
+          type: string
+          format: date-time
+        observation_window_end:
+          type: string
+          format: date-time
+        scanned_at:
+          type: string
+          format: date-time
+    Observation:
+      type: object
+      description: >-
+        One recorded scan, as retained by the history store: the report's
+        verdict fields plus the full mechanic bitset.
+      required: [asset, at, mechanics, base_severity, severity, accountability, undetermined]
+      properties:
+        asset:
+          $ref: '#/components/schemas/Asset'
+        at:
+          type: string
+          format: date-time
+        mechanics:
+          type: integer
+          description: The full mechanic bitset the report carried, as a number.
+        base_severity:
+          $ref: '#/components/schemas/Severity'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        accountability:
+          $ref: '#/components/schemas/Accountability'
+        undetermined:
+          type: boolean
+        undetermined_checks:
+          type: array
+          items:
+            type: string
+        evidence:
+          type: array
+          items:
+            $ref: '#/components/schemas/Evidence'
+    Transition:
+      type: object
+      description: >-
+        The derived difference between two consecutive observations. A state
+        other than "valid" means no comparison could be made; it never means
+        "no change".
+      required:
+        - asset
+        - from
+        - to
+        - state
+        - added
+        - removed
+        - added_names
+        - removed_names
+        - base_before
+        - base_after
+        - severity_before
+        - severity_after
+        - attribution
+      properties:
+        asset:
+          $ref: '#/components/schemas/Asset'
+        from:
+          $ref: '#/components/schemas/Observation'
+        to:
+          $ref: '#/components/schemas/Observation'
+        state:
+          type: string
+          enum: [valid, unknown, missing]
+        reason:
+          type: string
+        added:
+          type: integer
+          description: Capability bits present in the later observation only.
+        removed:
+          type: integer
+          description: Capability bits present in the earlier observation only.
+        added_names:
+          type: array
+          items:
+            type: string
+        removed_names:
+          type: array
+          items:
+            type: string
+        base_before:
+          $ref: '#/components/schemas/Severity'
+        base_after:
+          $ref: '#/components/schemas/Severity'
+        severity_before:
+          $ref: '#/components/schemas/Severity'
+        severity_after:
+          $ref: '#/components/schemas/Severity'
+        attribution:
+          type: string
+          enum: [none, capability, reputation, both]
+    History:
+      type: object
+      description: The body of GET /api/v1/history.
+      required: [asset, state, count, observations, transitions, retention]
+      properties:
+        asset:
+          $ref: '#/components/schemas/Asset'
+        state:
+          type: string
+          description: >-
+            The completeness of the history, not of any request. "missing" is
+            an explicit empty result, never a 404.
+          enum: [valid, unknown, missing]
+        reason:
+          type: string
+          description: Present when state is not valid.
+        count:
+          type: integer
+        observations:
+          type: array
+          items:
+            $ref: '#/components/schemas/Observation'
+        transitions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Transition'
+        latest_at:
+          type: string
+          format: date-time
+        latest_age_secs:
+          type: integer
+        retention:
+          type: integer
+          description: The per-asset observation cap these results were read against.
+    Exposure:
+      type: object
+      description: The body of GET /api/v1/exposure.
+      required: [account, total, limit, count, assets]
+      properties:
+        account:
+          type: string
+        total:
+          type: integer
+          description: Credit trustlines on the account (whole listing, not this page).
+        limit:
+          type: integer
+          description: Page size actually applied.
+        count:
+          type: integer
+        next_cursor:
+          type: integer
+          description: Cursor for the next page; absent on the last page.
+        assets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExposureAsset'
+    ExposureAsset:
+      type: object
+      description: One asset on an exposure page, with its own severity and completeness.
+      required: [asset, severity, undetermined, undetermined_checks]
+      properties:
+        asset:
+          $ref: '#/components/schemas/Asset'
+        severity:
+          $ref: '#/components/schemas/Severity'
+        undetermined:
+          type: boolean
+        undetermined_checks:
+          type: array
+          items:
+            type: string
+        finding:
+          $ref: '#/components/schemas/Finding'
+        reason:
+          type: string
+          description: Why this asset's scan failed; present only when finding is absent.
     Readiness:
       type: object
       required: [status, checked_at, age_secs, upstreams]
@@ -282,17 +552,36 @@ components:
         upstreams:
           type: array
           items:
-            type: object
-            required: [name, kind, reachable, probe_url]
-            properties:
-              name:
-                type: string
-              kind:
-                type: string
-                enum: [horizon, consumed]
-              reachable:
-                type: boolean
-              probe_error:
-                type: string
-              probe_url:
-                type: string
+            $ref: '#/components/schemas/UpstreamStatus'
+    UpstreamStatus:
+      type: object
+      required: [name, kind, reachable, probe_url]
+      properties:
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [horizon, consumed]
+        reachable:
+          type: boolean
+        probe_error:
+          type: string
+        probe_url:
+          type: string
+    Metrics:
+      type: object
+      description: >-
+        Monotonically increasing counters since process start; a consumer
+        derives rates from consecutive reads.
+      required: [scan_outcomes, source_failures]
+      properties:
+        scan_outcomes:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of scans per outcome class (complete, undetermined, not_found, upstream_failure).
+        source_failures:
+          type: object
+          additionalProperties:
+            type: integer
+          description: Count of scans per upstream source that failed to answer.

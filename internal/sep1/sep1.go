@@ -265,6 +265,19 @@ type Doc struct {
 	// like every other issuer-controlled string, and never interpreted by
 	// Assay; each is empty when the document does not declare it.
 	Documentation Documentation `toml:"DOCUMENTATION"`
+	// NetworkPassphrase is the network the document declares itself published
+	// for (NETWORK_PASSPHRASE), read verbatim. SEP-0001 lists it as a
+	// recommended root key: a document is written for exactly one network, and
+	// the passphrase is how it says which.
+	//
+	// It is parsed so the domain check can contradict it when it disagrees with
+	// the network the scan actually read from — a pubnet asset whose toml
+	// declares the testnet passphrase is a misconfiguration or an
+	// impersonation attempt, and either is worth surfacing (#370). Empty when
+	// the document does not declare the key, and an absence is never a
+	// mismatch: the field is optional, so silence claims nothing. Nothing
+	// interprets the value beyond that comparison.
+	NetworkPassphrase string `toml:"NETWORK_PASSPHRASE"`
 	// URL is the location the document was actually fetched from, after
 	// redirects. It can differ from the requested URL.
 	URL string `toml:"-"`

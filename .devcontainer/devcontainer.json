@@ -1,0 +1,25 @@
+{
+  "name": "Assay",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "workspaceFolder": "/workspace",
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=cached",
+  "forwardPorts": [8080],
+  "portsAttributes": {
+    "8080": {
+      "label": "Assay API"
+    }
+  },
+  "postCreateCommand": "go mod download && make help",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "golang.go",
+        "rust-lang.rust-analyzer",
+        "timonwong.shellcheck"
+      ]
+    }
+  }
+}

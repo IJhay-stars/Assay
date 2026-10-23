@@ -100,13 +100,23 @@ comparison instead of a finding.
 
 ## Wiring
 
-`differential.Compare` is exported for callers (the future `assay verify`
-command of #39 is the natural consumer) rather than invoked automatically:
-running a second network round-trip on every scan is an operator's choice, and
-a differential disagreement needs somewhere to be *reported*, which is a CLI
-and API decision. Nothing in the scan path changed; the scanner's own reading
-is exposed through `differential.SubjectProvider` over the same two flag
-copies the engine already fetches.
+`differential.Compare` is exposed to callers through `assay verify
+-differential` (#301). It stays opt-in: running a second network round-trip on
+every scan is an operator's choice. The command reuses the Subject the scan
+already built via `differential.SubjectProvider`, so the independent reading is
+compared against the same two Horizon flag copies the engine used — never a
+second fetch of the primary side.
+
+The four states render in both text and JSON. A `disagreement` fails
+verification with exit 1 even when the hash comparison agreed; the two
+`inconclusive` states are reported but do not change the hash verdict's exit
+code, because an outage is not a detected fault. Nothing in the scan path
+changed.
+
+A scheduled workflow (`.github/workflows/differential.yml`) runs the same
+derivation over every attested asset in `docs/deployment.md` and follows the
+same rule: disagreement is a failure, inconclusive is a warning, agreement is
+the only pass.
 
 ## Tests
 
@@ -124,3 +134,6 @@ All in-package, no network:
   either-side-unavailable, absent-entry-as-inconclusive, and the acceptance
   test: a **deliberately wrong primary value is caught** and both values are
   preserved on the result.
+- CLI tests drive `verifyAsset` through all four states with a fake RPC server,
+  assert both the text and JSON renderings, and assert that only a disagreement
+  changes the exit code (`cmd/assay/differential_test.go`).

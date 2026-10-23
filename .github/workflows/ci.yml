@@ -54,6 +54,12 @@ jobs:
       - name: test reproducibility script
         run: make test-reproducibility
 
+      - name: test attestation run record
+        run: make test-attest-run
+
+      - name: test Stellar CLI version guard
+        run: make test-stellar-cli-version
+
       # Tests must pass without network access: every check is a pure function
       # over fixtures captured under internal/*/testdata.
       #
@@ -73,7 +79,11 @@ jobs:
       - name: coverage report
         if: ${{ !cancelled() && hashFiles('go-test.log') != '' }}
         run: |
-          report=$(./scripts/coverage-report.sh go-test.log coverage.out)
+          if ! report=$(./scripts/coverage-report.sh go-test.log coverage.out 2>&1); then
+            echo "::warning title=Go coverage::Coverage report unavailable because the test run produced no usable coverage data."
+            printf '%s\n' "$report"
+            exit 0
+          fi
           printf '%s\n' "$report"
           {
             echo "### Go coverage"
@@ -105,11 +115,10 @@ jobs:
   # only, no race detector, no coverage, no matrix for the rest of the module.
   # Explicit versions rather than `stable`: setup-go resolves `stable` to a
   # moving target, which is the same trap the main job's go-version-file pin
-  # avoids for golangci-lint. The floor leg is pinned to the exact go.mod
-  # floor, not `1.26.x`: the x-range resolves from the actions/go-versions
-  # manifest, which can lag a fresh patch release and would install a
-  # toolchain below the floor that GOTOOLCHAIN=local then refuses to build
-  # with. Bump this pin together with the go.mod floor.
+  # avoids for golangci-lint. The `1.26.x` leg uses check-latest below: the
+  # hosted runner cache can otherwise keep serving an older patch (1.26.9)
+  # after the floor in go.mod moves to a newer one (1.26.10), which would make
+  # this leg test a toolchain that cannot even build the module.
   attest-reproducibility:
     name: attest on Go ${{ matrix.go-version }}
     runs-on: ubuntu-latest
@@ -123,6 +132,7 @@ jobs:
       - uses: actions/setup-go@v7.0.0
         with:
           go-version: ${{ matrix.go-version }}
+          check-latest: true
           cache: true
 
       # Pure functions over committed fixtures under internal/attest/testdata:
@@ -138,6 +148,72 @@ jobs:
       # a 14-mutation run would add minutes of noisy, advisory-only cost to
       # every PR. This comment exists so the absence is a recorded decision
       # rather than an oversight.
+
+  # Every fuzz target runs for a short fixed budget on every push and PR
+  # (issue #293). Fuzzing is only useful if it happens without someone
+  # remembering to run it; the seed corpus alone is exercised by the main test
+  # job, but new mutations are what find new panics. Targets are discovered
+  # rather than hard-coded, so adding a Fuzz* test anywhere gets CI coverage
+  # without editing this workflow again. A failure does not stop the remaining
+  # targets: one artifact should contain every crasher a run produced.
+  #
+  # The per-target budget is 20s. The job is capped at 5 minutes, which keeps
+  # even a run with several targets from slowing every PR. Longer exploration
+  # stays manual: go test ./<pkg> -run '^$' -fuzz '^FuzzName$' -fuzztime 10m.
+  fuzz:
+    name: Fuzz (short)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7.0.1
+
+      - uses: actions/setup-go@v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: fuzz every target for 20s
+        run: |
+          set -uo pipefail
+          failed=0
+          found=0
+          while IFS= read -r pkg; do
+            [ -n "$pkg" ] || continue
+            targets="$(go test "$pkg" -list '^Fuzz' 2>/dev/null | grep -E '^Fuzz' || true)"
+            [ -n "$targets" ] || continue
+            while IFS= read -r target; do
+              [ -n "$target" ] || continue
+              found=$((found + 1))
+              echo "::group::fuzz $target ($pkg)"
+              if ! go test "$pkg" -run '^$' -fuzz "^${target}$" -fuzztime 20s; then
+                failed=1
+              fi
+              echo "::endgroup::"
+            done <<< "$targets"
+          done < <(go list ./...)
+
+          if [ "$found" -eq 0 ]; then
+            echo "::warning title=Fuzz::No fuzz targets found in the module; add a Fuzz* test to make this job meaningful."
+          else
+            echo "Ran $found fuzz target(s) for 20s each."
+          fi
+          if [ "$failed" -ne 0 ]; then
+            exit 1
+          fi
+
+      # The Go fuzzer writes new crashers under the package's testdata/fuzz
+      # directory. Upload whatever exists even when the fuzz step failed, and
+      # even when no crasher was found (if-no-files-found: ignore), so a red
+      # run always leaves the reproducer available for download.
+      - name: upload crashers
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-crashers
+          path: |
+            **/testdata/fuzz/**
+          if-no-files-found: ignore
+          retention-days: 14
 
   # The encoding has been reimplemented by hand from the specification twice,
   # and both times the mistake was invisible until someone compared hashes.
@@ -299,11 +375,16 @@ jobs:
         run: ./scripts/check-codeowners.sh
 
       - name: check maintainer-owned paths
+        env:
+          # The gate's test-vector digest rule accepts an explicit maintainer
+          # label as an alternative to a PreimageVersion bump (#286), so the
+          # PR's labels travel with the invocation.
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
         run: |
           BASE=$(git merge-base origin/${{ github.base_ref }} ${{ github.event.pull_request.head.sha }})
 
           set +e
-          out=$(./scripts/merge-gate.sh "$BASE" ${{ github.event.pull_request.head.sha }} 2>&1)
+          out=$(MERGE_GATE_LABELS="$PR_LABELS" ./scripts/merge-gate.sh "$BASE" ${{ github.event.pull_request.head.sha }} 2>&1)
           rc=$?
           set -e
 

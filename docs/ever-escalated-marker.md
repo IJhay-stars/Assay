@@ -38,7 +38,7 @@ On every successful `attest` / element of `attest_many`, the contract computes
 `max(previous_max_or_0, new_severity)` and stores it. It never decreases. On
 `revoke`, the entry is removed along with the attestation, so a revoked asset
 reads exactly like never-attested (`0`) and the "no tombstone" principle
-([contract-interface.md](#revoked-and-never-attested-look-the-same-on-chain-deliberately))
+([contract-interface.md](contract-interface.md#revoked-and-never-attested-look-the-same-on-chain-deliberately))
 is preserved.
 
 A new read-only entrypoint:

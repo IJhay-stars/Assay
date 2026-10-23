@@ -67,6 +67,10 @@ and seven carry some power. So `clear` is the overwhelmingly common answer on
 the network, and a sample that did not reflect that would be measuring the
 wrong thing.
 
+For a dated comparison of the 18 scan subjects and StellarExpert's numeric
+rating, including fresh scans of the full top-50 fixture, see
+[severity-rating-comparison.md](severity-rating-comparison.md).
+
 `DOGE` is the most informative row in the table: base severity `0`, final
 severity `4`. Capability analysis honestly returns `clear` for a known scam,
 because its issuer genuinely holds no power over a holder's balance. It is
@@ -277,12 +281,21 @@ measurable.
 
 ### `sep1-domain`
 
-- **`unverified` conflates two different facts.** "The `stellar.toml` could not
-  be fetched" and "it was fetched and does not claim this asset" both produce
-  `unverified`. The distinction survives only in the prose reasoning and the
-  evidence claim — a consumer switching on the JSON `accountability` field
-  cannot tell a broken web server from a refused claim. Both appear in this run:
-  USDC is a 404, BERKSHIRE is a DNS failure.
+- **`unverified` no longer conflates two different facts.** "The `stellar.toml`
+  could not be fetched" and "it was fetched and does not claim this asset" both
+  still produce `unverified`, but the report now also carries
+  `accountability_reason: "fetch_failed"` versus `"not_claimed"` (plus `"mismatch"`
+  when the advertised `home_domain` disagrees with the curated directory, and
+  `"no_home_domain"` with `accountability: "unknown"` when none was advertised).
+  A consumer switching on the JSON fields can now tell a broken web server from a
+  refused claim without reading the reasoning text. Both cases appear in this
+  run: USDC is a 404 (`fetch_failed`), BERKSHIRE is a DNS failure
+  (`fetch_failed`). The distinction survives in the attributed evidence claim as
+  well (`not retrievable: status 404` versus `CURRENCIES lists ... none
+  matching`). The `accountability` preimage line is unchanged
+  (`unknown`/`unverified`/`verified`) and `accountability_reason` is report
+  metadata, not part of the hashed evidence preimage — there is no encoding
+  bump ([contract-interface](contract-interface.md#report-fields-outside-the-preimage)).
 - **Linked currency files are not followed.** A `stellar.toml` may point to a
   per-currency file rather than inline the entry. Assay reports that as
   unconfirmed rather than refuted, counting every entry that carries a `toml`
