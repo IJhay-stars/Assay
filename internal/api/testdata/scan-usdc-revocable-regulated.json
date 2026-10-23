@@ -1,5 +1,6 @@
 {
   "accountability": "unverified",
+  "accountability_reason": "mismatch",
   "asset": {
     "code": "USDC",
     "issuer": "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
@@ -82,6 +83,7 @@
     },
     {
       "accountability": "unverified",
+      "accountability_reason": "mismatch",
       "check": "sep1-domain",
       "escalation": false,
       "evidence": [

@@ -504,3 +504,127 @@ func findNetworkEvidence(t *testing.T, f mechanics.Finding) mechanics.Evidence {
 	t.Fatalf("no NETWORK_PASSPHRASE evidence, got %d entries: %+v", len(f.Evidence), f.Evidence)
 	return mechanics.Evidence{}
 }
+
+// TestDomainCheckFetchFailedIsFetchFailed pins that a stellar.toml that could
+// not be read (HTTP 404 here; DNS failure and host-policy refusal take the
+// same path) reports accountability unverified with reason fetch_failed, so a
+// consumer switching on JSON can tell a broken web server from a refused claim.
+func TestDomainCheckFetchFailedIsFetchFailed(t *testing.T) {
+	s := &mechanics.Subject{
+		Asset:           mechanics.Asset{Code: "USDC", Issuer: domainIssuer},
+		Issuer:          &horizon.Account{AccountID: domainIssuer, HomeDomain: "circle.com"},
+		Toml:            nil,
+		TomlURL:         sep1.URLFor("circle.com"),
+		TomlAttemptedAt: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
+		TomlErr:         "status 404",
+		Directory:       nil,
+		ScannedAt:       time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
+	}
+	f := runDomain(t, s)
+
+	if f.Accountability == nil || *f.Accountability != mechanics.AccountabilityUnverified {
+		t.Fatalf("accountability = %v, want unverified", f.Accountability)
+	}
+	if f.AccountabilityReason == nil || *f.AccountabilityReason != mechanics.AccountabilityReasonFetchFailed {
+		t.Fatalf("accountability_reason = %v, want fetch_failed", f.AccountabilityReason)
+	}
+	if f.Mechanics&mechanics.MechDomainUnverified == 0 {
+		t.Error("the unverified bit must be set")
+	}
+	// Negative: a fetch failure is not a "not claimed" verdict.
+	if strings.Contains(f.Reasoning, "has not claimed this asset") {
+		t.Error("fetch failure reported the flat negative 'has not claimed this asset'")
+	}
+	if !strings.Contains(f.Reasoning, "could not be read") {
+		t.Error("fetch failure reasoning must say the toml could not be read")
+	}
+}
+
+// TestDomainCheckNotClaimedIsNotClaimed pins that a stellar.toml that resolved
+// but does not list this asset reports accountability unverified with reason
+// not_claimed — distinguishable from a fetch failure from JSON alone.
+func TestDomainCheckNotClaimedIsNotClaimed(t *testing.T) {
+	toml := "[[CURRENCIES]]\ncode = \"EURC\"\nissuer = \"" + otherIssuer + "\"\n"
+	f := runDomain(t, domainSubject(t, toml))
+
+	if f.Accountability == nil || *f.Accountability != mechanics.AccountabilityUnverified {
+		t.Fatalf("accountability = %v, want unverified", f.Accountability)
+	}
+	if f.AccountabilityReason == nil || *f.AccountabilityReason != mechanics.AccountabilityReasonNotClaimed {
+		t.Fatalf("accountability_reason = %v, want not_claimed", f.AccountabilityReason)
+	}
+	// Negative: a fetched-but-not-claimed toml is not a fetch failure.
+	if strings.Contains(f.Reasoning, "could not be read") {
+		t.Error("not-claimed reasoning described the toml as unreadable")
+	}
+	if !strings.Contains(f.Reasoning, "has not claimed this asset") {
+		t.Error("not-claimed reasoning must state the domain did not claim the asset")
+	}
+}
+
+// TestDomainCheckMismatchIsMismatch pins that a home_domain that disagrees
+// with the curated directory's domain reports accountability unverified with
+// reason mismatch.
+func TestDomainCheckMismatchIsMismatch(t *testing.T) {
+	toml := "[[CURRENCIES]]\ncode = \"USDC\"\nissuer = \"" + domainIssuer + "\"\n"
+	s := domainSubject(t, toml)
+	s.Directory = &stellarexpert.DirectoryEntry{
+		Address: otherIssuer,
+		Name:    "Someone Else",
+		Domain:  "other.example",
+	}
+
+	f := runDomain(t, s)
+
+	if f.Accountability == nil || *f.Accountability != mechanics.AccountabilityUnverified {
+		t.Fatalf("accountability = %v, want unverified", f.Accountability)
+	}
+	if f.AccountabilityReason == nil || *f.AccountabilityReason != mechanics.AccountabilityReasonMismatch {
+		t.Fatalf("accountability_reason = %v, want mismatch", f.AccountabilityReason)
+	}
+	if !strings.Contains(f.Reasoning, "disagree") {
+		t.Error("mismatch reasoning must state the two sources disagree")
+	}
+}
+
+// TestDomainCheckNoHomeDomainIsUnknownNoHomeDomain pins that an issuer with no
+// home_domain reports accountability unknown with reason no_home_domain, and
+// never unverified: there was no claim to fail.
+func TestDomainCheckNoHomeDomainIsUnknownNoHomeDomain(t *testing.T) {
+	s := &mechanics.Subject{
+		Asset:     mechanics.Asset{Code: "USDC", Issuer: domainIssuer},
+		Issuer:    &horizon.Account{AccountID: domainIssuer}, // no home_domain
+		Toml:      nil,
+		ScannedAt: time.Date(2026, 9, 25, 0, 0, 0, 0, time.UTC),
+	}
+	f := runDomain(t, s)
+
+	if f.Accountability == nil || *f.Accountability != mechanics.AccountabilityUnknown {
+		t.Fatalf("accountability = %v, want unknown", f.Accountability)
+	}
+	if f.AccountabilityReason == nil || *f.AccountabilityReason != mechanics.AccountabilityReasonNoHomeDomain {
+		t.Fatalf("accountability_reason = %v, want no_home_domain", f.AccountabilityReason)
+	}
+	// Negative: no claim is not a failed claim.
+	if strings.Contains(f.Reasoning, "could not be read") {
+		t.Error("no-home_domain reasoning described the toml as unreadable")
+	}
+	if strings.Contains(f.Reasoning, "has not claimed this asset") {
+		t.Error("no-home_domain reasoning reported the flat negative 'has not claimed this asset'")
+	}
+}
+
+// TestDomainCheckVerifiedHasNoReason pins that a reciprocal claim reports
+// accountability verified with no sub-reason: a verified claim needs no
+// further classification.
+func TestDomainCheckVerifiedHasNoReason(t *testing.T) {
+	toml := "[[CURRENCIES]]\ncode = \"USDC\"\nissuer = \"" + domainIssuer + "\"\n"
+	f := runDomain(t, domainSubject(t, toml))
+
+	if f.Accountability == nil || *f.Accountability != mechanics.AccountabilityVerified {
+		t.Fatalf("accountability = %v, want verified", f.Accountability)
+	}
+	if f.AccountabilityReason != nil {
+		t.Errorf("accountability_reason = %v, want nil for a verified claim", f.AccountabilityReason)
+	}
+}

@@ -665,6 +665,27 @@ scanner	VERSION         (v4: immediately after the version line)
 ecosystem already agrees on, and the value is fixed by the protocol. It is not
 configuration.
 
+#### Report fields outside the preimage
+
+Some report fields are rendered in the JSON and CLI output but are deliberately
+not part of the hashed evidence preimage: `state`, `stale`, `undetermined`,
+`undetermined_checks`, `undetermined_rate`, `scanned_at`, and
+`accountability_reason`. They describe the report's completeness and the
+classification of its verdict, not the evidence the verdict commits to, so they
+move nothing in `evidence_hash`.
+
+`accountability_reason` was added in #367 to split the two facts that
+`accountability: unverified` had collapsed — `fetch_failed` (the stellar.toml
+could not be read) from `not_claimed` (it was fetched and does not name this
+asset), plus `mismatch` (the advertised home_domain disagrees with the curated
+directory) and `no_home_domain` (there was no claim to verify, so
+`accountability` is `unknown`). Because it is not evidence, the preimage
+encoding is unchanged: `accountability` still renders one of `unknown`,
+`unverified`, `verified`, and there is no `assay-evidence-v5`. The distinction
+already survives in the attributed evidence claim text (for example
+`not retrievable: status 404` versus `CURRENCIES lists ... none matching`);
+`accountability_reason` merely makes it machine-readable from JSON alone.
+
 A report whose bindings are not one of the four rows above (a network without
 a check set, or a scanner without both) has no tag. `attest.FromReport` refuses
 it with `ErrUnencodable`. No production path produces one: `Engine.Run` binds

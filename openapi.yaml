@@ -194,6 +194,14 @@ components:
       type: string
       description: Whether the issuer's advertised home domain publicly claims the asset.
       enum: [unknown, unverified, verified]
+    AccountabilityReason:
+      type: string
+      enum: [fetch_failed, not_claimed, mismatch, no_home_domain]
+      description: >-
+        Why accountability was not verified: the stellar.toml could not be
+        fetched, it was fetched but does not claim the asset, it disagrees with
+        the curated directory, or the issuer has no home_domain. Absent when
+        the verdict needs no sub-reason (a verified claim).
     Asset:
       type: object
       required: [code, issuer]
@@ -268,6 +276,8 @@ components:
           description: The capability bits this check observed, as names.
         accountability:
           $ref: '#/components/schemas/Accountability'
+        accountability_reason:
+          $ref: '#/components/schemas/AccountabilityReason'
         evidence:
           type: array
           items:
@@ -307,6 +317,8 @@ components:
           description: True when reputation raised the level above base_severity.
         accountability:
           $ref: '#/components/schemas/Accountability'
+        accountability_reason:
+          $ref: '#/components/schemas/AccountabilityReason'
         state:
           type: string
           enum: [valid, unknown, stale]

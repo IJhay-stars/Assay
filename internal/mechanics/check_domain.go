@@ -51,6 +51,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 
 	domain := s.HomeDomain()
 	if domain == "" {
+		reason := AccountabilityReasonNoHomeDomain
+		f.AccountabilityReason = &reason
 		f.Mechanics = MechDomainUnverified
 		f.Reasoning = "The issuer account advertises no home_domain, so there is no " +
 			"published identity to verify against. Nobody has publicly claimed this " +
@@ -67,6 +69,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		f.Mechanics = MechDomainUnverified
 		acc = AccountabilityUnverified
 		f.Accountability = &acc
+		reason := AccountabilityReasonMismatch
+		f.AccountabilityReason = &reason
 		f.Reasoning = fmt.Sprintf(
 			"The issuer advertises home_domain %q, but the curated directory lists the "+
 				"same issuer under %q. The two sources disagree about who claims this "+
@@ -91,6 +95,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 	if s.Toml == nil {
 		acc = AccountabilityUnverified
 		f.Mechanics = MechDomainUnverified
+		reason := AccountabilityReasonFetchFailed
+		f.AccountabilityReason = &reason
 		if s.TomlRefused {
 			// A host-policy refusal is a decision Assay made, not a source that
 			// failed. It is reported as attributed evidence, the same way a
@@ -170,6 +176,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 		// Overstating a negative is the same class of error as overstating a
 		// positive.
 		if linked := s.Toml.LinkedCurrencies(s.Asset.Code, s.Asset.Issuer); linked > 0 {
+			reason := AccountabilityReasonNotClaimed
+			f.AccountabilityReason = &reason
 			f.Reasoning = fmt.Sprintf(
 				"The issuer advertises home_domain %q and that domain publishes a "+
 					"stellar.toml, but this asset (%s) is not declared inline in its "+
@@ -197,6 +205,8 @@ func (c DomainCheck) Run(_ context.Context, s *Subject) (Finding, error) {
 
 		acc = AccountabilityUnverified
 		f.Mechanics = MechDomainUnverified
+		reason := AccountabilityReasonNotClaimed
+		f.AccountabilityReason = &reason
 		f.Reasoning = fmt.Sprintf(
 			"The issuer advertises home_domain %q and that domain publishes a "+
 				"stellar.toml, but the toml does not list this asset (%s) in its "+
@@ -381,6 +391,8 @@ func (DomainCheck) resolveLinked(f Finding, s *Subject, domain string, res *sep1
 	acc := AccountabilityUnverified
 	f.Accountability = &acc
 	f.Mechanics = MechDomainUnverified
+	reason := AccountabilityReasonNotClaimed
+	f.AccountabilityReason = &reason
 
 	// The bound was reached before every link could be read. The documents
 	// past the bound may have claimed the asset, so this is unresolved, not a

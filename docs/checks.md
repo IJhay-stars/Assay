@@ -145,12 +145,26 @@ would let any domain claim any asset — the exact impersonation this check
 exists to catch — so both must match.
 
 Two states are decided before any toml is fetched. **No `home_domain` at all**
-means nobody has claimed the asset: accountability is `unknown`, and the
-reasoning says so plainly — an absent claim is not a failed one. **A
-`home_domain` that disagrees with the curated directory's `domain`** is
-reported as `unverified` with both claims attributed to their source and URL,
-because a holder cannot tell a benign brand migration from an impersonation
-setup while the two sources simply contradict each other.
+means nobody has claimed the asset: accountability is `unknown` with reason
+`no_home_domain`, and the reasoning says so plainly — an absent claim is not a
+failed one. **A `home_domain` that disagrees with the curated directory's
+`domain`** is reported as `unverified` with reason `mismatch`, with both claims
+attributed to their source and URL, because a holder cannot tell a benign brand
+migration from an impersonation setup while the two sources simply contradict
+each other.
+
+Once a toml is in play, the split is reported in `accountability_reason`, so a
+consumer switching on the JSON fields can tell the cases apart without reading
+the reasoning text:
+
+- `fetch_failed` — the toml could not be read (HTTP failure, DNS failure, or a
+  host-policy refusal). "We could not check" is not "this is fine".
+- `not_claimed` — the toml resolved but does not list this code and issuer. The
+  domain has not claimed the asset.
+- `mismatch` — the advertised `home_domain` and the curated directory's
+  `domain` disagree about who claims the asset.
+- `no_home_domain` — the issuer advertises no `home_domain`; accountability is
+  `unknown`, not `unverified`, because there was no claim to test.
 
 Verification failures are reported verbatim, including the HTTP status. "We
 could not check" and "this is fine" are different answers and must never render
