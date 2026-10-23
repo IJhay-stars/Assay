@@ -40,6 +40,15 @@ the mutation applied; **survived** means the run found a test gap.
 | G-M6 | Escalation sets a capability bit: add `MechClawbackEnabled` to the reputation escalation finding | An escalation must never grant a power the ledger does not; CapabilityMask must stay clean | `internal/mechanics/check_reputation.go` | **caught** |
 | G-M7 | Flag disagreement resolved in the holder's favour: change `reconcileFlags`'s clawback OR to AND | A power is held if either Horizon copy reports it; indexer lag must not lower severity | `internal/mechanics/check_capability.go`, `reconcileFlags` | **caught** |
 
+### Go — the preimage encoder
+
+| ID | Mutation | Property violated | Target | Baseline |
+| --- | --- | --- | --- | --- |
+| G-M8 | Drop the version line: remove the initial `b.WriteString(preimageVersion(rep))` and newline from `Preimage` | Every committed digest identifies its encoding, and existing v1/v2/v3 bytes must remain reproducible | `internal/attest/attest.go`, `Preimage` | **not measured (suite build blocked)** |
+| G-M9 | Emit a v2 check-set line for v1 reports: remove the `len(rep.CheckSet) > 0` guard, adding a second `checks` record | A report without check-set binding must keep its exact v1 bytes and must not claim a check set | `internal/attest/attest.go`, `Preimage` check-set block | **not measured (suite build blocked)** |
+| G-M10 | Put `network` before `checks` by swapping the two optional-field blocks | The v3 byte format has a fixed field order, and network-bound vectors must reproduce it | `internal/attest/attest.go`, `Preimage` optional fields | **not measured (suite build blocked)** |
+| G-M11 | Skip escaping an evidence claim: pass `e.Claim` directly to the evidence line instead of `escape(e.Claim)` | Untrusted claim text must not add fields or forge preimage records | `internal/attest/attest.go`, `Preimage` evidence rendering | **not measured (suite build blocked)** |
+
 ### Rust — the safety registry
 
 | ID | Mutation | Property violated | Target | Baseline |
@@ -52,6 +61,8 @@ the mutation applied; **survived** means the run found a test gap.
 | R-M6 | `admin.require_auth()` removed from `transfer_admin` | Only the current admin may nominate a successor, and a rejected nomination must leave no `PendingAdmin` behind | same, `transfer_admin` | **survived → closed in #347's PR** (see below) |
 | R-M7 | `PendingAdmin` removal skipped in `accept_admin` | A completed transfer consumes its nomination: `accept_admin` is replay-proof, and a stale pending address never outlives its own acceptance | same, `accept_admin` | **survived → closed in #347's PR** (see below) |
 | R-M8 | Mask test inverted in `is_safe_masked` (`flags & forbidden_mask != 0` → `== 0`), refusing clean assets and admitting forbidden ones | The mask gate admits an attestation exactly when it carries none of the caller's forbidden bits; a policy mask must block the bits it names | same, `is_safe_masked` | **caught** |
+| R-M9 | `pending.require_auth()` removed from `accept_admin` | Only the nominated address may complete the transfer; an accept must bind to the address in `PendingAdmin`, not to whoever calls | same, `accept_admin` | **caught** |
+| R-M10 | `transfer_admin` writes `PendingAdmin` only when the slot is empty (guarded by `has`) | The current admin may replace an outstanding nomination; a superseded address must never be able to accept | same, `transfer_admin` | **caught** |
 
 ### Rust — the example gate
 
@@ -178,6 +189,31 @@ snapshot file…` line. The caveat then earned a second half: a run that fails
 restoring only the mutated source file leaves poisoned snapshots for the next
 row. The restore step below now says the whole tree.
 
+## Baseline run — 2026-10-21 — the admin transfer entrypoint matrix
+
+Run for #318, which completes the entrypoint matrix #347's section above
+names as owed: `accept_admin` by a caller who is not the pending admin, and a
+nomination superseded before acceptance. Same procedure: a scratch
+`git worktree` of the branch, each mutation applied by hand,
+`cargo test --locked -p assay-safety-registry` from `assay-contracts/`, the
+whole tree restored between rows. The suite as delivered: 68 tests.
+
+| ID | Suite run | Result | Caught by (first failing test) |
+| --- | --- | --- | --- |
+| R-M9 | `cargo test --locked -p assay-safety-registry` | **caught** (`66 passed, 2 failed`) | `test::accept_admin_rejects_a_caller_other_than_the_pending_admin` (panic `only the pending admin may accept the transfer: Ok(())`), then `test::second_transfer_admin_nomination_supersedes_the_first` |
+| R-M10 | `cargo test --locked -p assay-safety-registry` | **caught** (`67 passed, 1 failed`) | `test::second_transfer_admin_nomination_supersedes_the_first` (panic `a superseded nomination must not be acceptable: Ok(())`) |
+
+### Verdict: 2/2 caught on the first run
+
+Both mutations are refused by tests that mock authorization *for the caller
+of the failing call* — the same discipline that closed R-M6 and R-M7: the
+harness grants the intruder (or the superseded address) the very call under
+test, so `require_auth` cannot pass for the wrong reason and cannot be deleted
+without the test noticing. R-M9's second failure is a free property: the same
+mutation also breaks the superseded-nomination test, because both tests rely
+on `accept_admin` binding to the stored `PendingAdmin` rather than to the
+caller.
+
 ## Procedure
 
 Reproduce the baseline from this document alone:
@@ -204,6 +240,23 @@ Reproduce the baseline from this document alone:
 For the Rust rows, `cargo test -p assay-safety-registry` or
 `-p assay-example-gate` from `assay-contracts/`; for the Go rows,
 `go test ./internal/...` from the repository root.
+
+## Encoder baseline attempt — 2026-10-22
+
+The requested `go test ./internal/attest/` run cannot reach the tests in this
+checkout. The package build fails first because `internal/sep1` references the
+undefined `MaxRedirects`, while `internal/stellarexpert` references the
+undefined `DefaultRetryOptions` and has unused `math` and `math/rand` imports.
+These are outside the encoder scope. The four encoder mutations therefore
+remain **not measured** — this is neither a catch nor a survivor, and no
+survivor is being reported as resolved.
+
+| ID | Suite run | Result | Reason |
+| --- | --- | --- | --- |
+| G-M8 | `go test ./internal/attest/` | **not measured** | Build fails before test execution; see the errors above |
+| G-M9 | `go test ./internal/attest/` | **not measured** | Build fails before test execution; see the errors above |
+| G-M10 | `go test ./internal/attest/` | **not measured** | Build fails before test execution; see the errors above |
+| G-M11 | `go test ./internal/attest/` | **not measured** | Build fails before test execution; see the errors above |
 
 ## Extending the catalogue
 

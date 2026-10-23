@@ -45,7 +45,7 @@ que hace que la confianza sea comprobable en lugar de absoluta: compromete
 exactamente la evidencia que leyó el escáner, y cualquiera puede reescanear y
 recalcularlo. La declaración completa de lo que la clave de administración puede
 y no puede hacer está en [Frontera de confianza: la clave de
-administración](../../contract-interface.md#trust-boundary-the-admin-key).
+administración](../../attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 
 Para un desglose completo de cada parte en la que confía (emisor, clave del
 atestador, Horizon y proveedores de reputación) y las consecuencias si cada una
@@ -507,7 +507,7 @@ de su RPC. La nota de retención del propio registro está en
 - **Una clave puede escribir cualquier atestación.** Todavía no hay multisig ni
   umbral de atestadores independientes. La declaración completa de poderes y
   límites está en [Frontera de confianza: la clave de
-  administración](../../contract-interface.md#trust-boundary-the-admin-key).
+  administración](../../attester-key.md#what-an-attacker-with-the-key-can-and-cannot-do).
 - **Nada refresca las atestaciones.** Son exactamente tan recientes como su
   `attested_at`. Elija un `max_age_secs` que realmente aceptaría.
 - Testnet se reinicia periódicamente, lo que elimina estas atestaciones. Las

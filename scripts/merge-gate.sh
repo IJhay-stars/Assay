@@ -90,6 +90,58 @@ path_changed() {
     ! git diff --quiet "$BASE" "$HEAD" -- "$1"
 }
 
+# Consensus-bound test vectors (#286).
+#
+# Each internal/attest/testdata/vectors/*.digest pins what an existing
+# preimage version hashes to, and every verifier re-derives those bytes;
+# changing what an existing version hashes to is a silent consensus break for
+# every attestation already on chain. So a digest may only move together with
+# a PreimageVersion* constant in internal/attest/attest.go (a new version;
+# never an edit to a frozen one) or with the explicit maintainer label below,
+# which CI passes in via $MERGE_GATE_LABELS (the PR's label names, space
+# separated).
+VECTOR_DIGESTS="internal/attest/testdata/vectors/*.digest"
+PREIMAGE_VERSION_FILE="internal/attest/attest.go"
+MAINTAINER_VECTOR_LABEL="vectors:intentional"
+
+preimage_versions() {
+    # The PreimageVersion* constant lines as declared at the given commit.
+    git show "$1:$PREIMAGE_VERSION_FILE" 2>/dev/null | grep '^const PreimageVersion' || true
+}
+
+VECTOR_HITS=()
+if ! git diff --quiet "$BASE" "$HEAD" -- "$VECTOR_DIGESTS"; then
+    while IFS= read -r hit; do
+        [ -n "$hit" ] && VECTOR_HITS+=("$hit")
+    done < <(git diff --name-only "$BASE" "$HEAD" -- "$VECTOR_DIGESTS")
+fi
+
+if [ ${#VECTOR_HITS[@]} -gt 0 ]; then
+    vector_ok=0
+    case " ${MERGE_GATE_LABELS:-} " in
+        *" $MAINTAINER_VECTOR_LABEL "*) vector_ok=1 ;;
+    esac
+    if [ "$vector_ok" -eq 0 ] && ! diff <(preimage_versions "$BASE") <(preimage_versions "$HEAD") >/dev/null; then
+        # A PreimageVersion* constant changed alongside the digests: a
+        # deliberate version bump, which is the change this rule asks for.
+        vector_ok=1
+    fi
+    if [ "$vector_ok" -eq 0 ]; then
+        echo "merge-gate: test-vector digests changed without a preimage version bump:"
+        for hit in "${VECTOR_HITS[@]}"; do
+            echo "  $hit"
+        done
+        echo
+        echo "Each .digest pins what an existing preimage version hashes to, and"
+        echo "every verifier re-derives those bytes: moving one silently breaks"
+        echo "consensus for every attestation already on chain. Either add a new"
+        echo "PreimageVersion* constant in $PREIMAGE_VERSION_FILE (never edit a"
+        echo "frozen one) alongside the digest change, or a maintainer approves"
+        echo "it with the \"$MAINTAINER_VECTOR_LABEL\" label."
+        exit 1
+    fi
+fi
+
 HITS=()
 for path in "${CRITICAL_PATHS[@]}"; do
     if path_changed "$path"; then

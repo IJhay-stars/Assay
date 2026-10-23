@@ -6,6 +6,13 @@ Report privately via [GitHub's security advisory form](https://github.com/use-as
 or by email to deekhay7534@gmail.com.
 
 Please do not open a public issue for anything in the first category below.
+The same private-first process applies if a scanner defect or other security
+failure may have produced an under-reported attestation. Include the affected
+asset and network, registry and transaction details when available, scanner
+version, and a reproduction or supporting evidence. Maintainers will coordinate
+mitigation and disclosure, notify known affected consumers, and publish a
+correction notice when it is safe to do so; see the
+[attestation correction runbook](docs/attestation-correction.md).
 
 There is no bug bounty. Assay is an early open-source project and cannot
 offer payment.
@@ -83,7 +90,38 @@ policy above — report it privately first.
 
 ## Supported versions
 
-Pre-1.0. Only `main` is supported; there are no maintained release branches.
+Pre-1.0. Fixes land on `main`; there are no maintained release branches. What
+receives a fix depends on what you are reporting against.
+
+### Scanner (`assay` CLI and HTTP API)
+
+| Version | Receives fixes | Notes |
+| --- | --- | --- |
+| `main` | **Yes** | Builds from a checkout report their scanner version as `devel` (`internal/version`). |
+| Latest `v*` release tag | **Yes**, by a new release | No release tag has been cut yet ([CONTRIBUTING.md](CONTRIBUTING.md), "Releasing"). Once one exists, a fix ships as a new tag. |
+| Older `v*` tags | No | Upgrade to the latest release. A report that reproduces only on an old tag is still welcome if it reached an attestation. |
+
+### Deployed contracts (Stellar testnet only)
+
+Soroban contracts cannot be patched in place: the registry has no upgrade
+entrypoint, so a contract fix ships as a **new deployment**, recorded in
+[docs/deployment.md](docs/deployment.md), which is the source of truth for
+these addresses.
+
+| Contract | Address | Receives fixes | Notes |
+| --- | --- | --- | --- |
+| Safety registry | `CBK4FBIH…` | **Yes**, by redeployment | The live registry (wasm `c4105b91…`, source `eec17a7`). It predates `revoke` and TTL-on-write, which exist only in the source on `main`; see [migrating](docs/deployment.md#migrating-to-a-registry-with-revoke). |
+| Example gate | `CAL5VYSW…` | **Yes**, by redeployment | The canonical gate (wasm `ca40172e…`). |
+| Example gate (duplicate) | `CCMA2SW2…` | Covered by `CAL5VYSW…` | Identical wasm and policy; nothing refers to it. |
+| Example gate (superseded) | `CANO57JR…` | **No**, it cannot be | Known-flawed ([#26](https://github.com/use-assay/Assay/issues/26)). A gate pointing at it is in scope as an unfixed #26, see below. |
+| Contract source on `main` | `assay-contracts/` | **Yes** | Includes code not yet deployed (`revoke`). Report against the source as well as against what runs. |
+
+There is no pubnet deployment, so nothing on pubnet is supported.
+
+**Keeping this table current:** update it in the same change as a release
+tag, a redeployment or a change of canonical instance. A report against an
+address missing from this table is answered from
+[docs/deployment.md](docs/deployment.md), not refused.
 
 ## What is deployed
 

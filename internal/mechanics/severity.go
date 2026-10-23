@@ -240,3 +240,36 @@ const (
 	// stellar.toml that names this exact code and issuer.
 	AccountabilityVerified Accountability = "verified"
 )
+
+// AccountabilityReason classifies why an accountability verdict was reached, so
+// a consumer can tell "the stellar.toml could not be fetched" from "the
+// stellar.toml was fetched and does not claim this asset" from JSON alone,
+// without reading the reasoning text.
+//
+// It is report metadata, not part of the hashed evidence preimage: the
+// evidence claim text already carries the distinction (for example
+// "not retrievable: status 404" versus "CURRENCIES lists ... none matching"),
+// and adding it to the preimage would re-hash every existing attestation
+// without new evidentiary content. See docs/contract-interface.md.
+//
+// NoHomeDomain pairs with AccountabilityUnknown; the other three pair with
+// AccountabilityUnverified. AccountabilityVerified carries no reason: a
+// reciprocal claim needs no further classification.
+type AccountabilityReason string
+
+const (
+	// AccountabilityReasonFetchFailed means the issuer advertises a home_domain
+	// but its stellar.toml could not be read — HTTP failure, DNS failure, or a
+	// host-policy refusal — so no reciprocal claim could be tested.
+	AccountabilityReasonFetchFailed AccountabilityReason = "fetch_failed"
+	// AccountabilityReasonNotClaimed means the stellar.toml resolved but does
+	// not list this code and issuer, so the domain has not claimed this asset.
+	AccountabilityReasonNotClaimed AccountabilityReason = "not_claimed"
+	// AccountabilityReasonMismatch means the advertised home_domain and the
+	// curated directory's domain disagree about who claims the asset.
+	AccountabilityReasonMismatch AccountabilityReason = "mismatch"
+	// AccountabilityReasonNoHomeDomain means the issuer advertises no
+	// home_domain at all, so there was no claim to verify — accountability is
+	// unknown, not unverified.
+	AccountabilityReasonNoHomeDomain AccountabilityReason = "no_home_domain"
+)

@@ -12,10 +12,21 @@ import (
 	"testing"
 	"time"
 
+	"github.com/use-assay/assay/internal/attest"
 	"github.com/use-assay/assay/internal/mechanics"
 	"github.com/use-assay/assay/internal/scan"
 	"github.com/use-assay/assay/internal/sep1"
 )
+
+// horizonFlagsStub is the flags object a real Horizon record always carries:
+// all four authorization flags. An empty {} would be a malformed response,
+// which the client now refuses rather than reading as all-false (#290).
+var horizonFlagsStub = map[string]bool{
+	"auth_required":         false,
+	"auth_revocable":        false,
+	"auth_immutable":        false,
+	"auth_clawback_enabled": false,
+}
 
 func TestParseAsset(t *testing.T) {
 	const issuer = "GA5ZSEJYB37JRC5AVCIA5MOP4RHTM335X2KGX3IHOJAPP5RE34K4KZVN"
@@ -46,6 +57,65 @@ func TestParseAsset(t *testing.T) {
 		}
 	})
 
+	// Every spelling people actually paste — the colon form Stellar tools
+	// print, and the stellar.expert asset URL — must parse to the same asset,
+	// and must report it in the canonical CODE-ISSUER form: the raw argument
+	// is never what a report, an evidence line or a preimage prints.
+	t.Run("spellings", func(t *testing.T) {
+		const canonical = "USDC-" + issuer
+		cases := []struct {
+			name string
+			in   string
+		}{
+			{"canonical", canonical},
+			{"canonical padded", "  " + canonical + "  "},
+			{"canonical with sequence suffix", canonical + "-1"},
+			{"colon separated", "USDC:" + issuer},
+			{"colon separated padded", "  USDC:" + issuer + "  "},
+			{"explorer url", "https://stellar.expert/explorer/public/asset/" + canonical},
+			{"explorer url without scheme", "stellar.expert/explorer/public/asset/" + canonical},
+			{"explorer url with www", "https://www.stellar.expert/explorer/public/asset/" + canonical},
+			{"explorer url mixed case host", "https://Stellar.Expert/explorer/public/asset/" + canonical},
+			{"explorer testnet url", "https://stellar.expert/explorer/testnet/asset/" + canonical},
+			{"explorer url with query and fragment", "https://stellar.expert/explorer/public/asset/" + canonical + "?a=b#c"},
+			{"explorer url with trailing slash", "https://stellar.expert/explorer/public/asset/" + canonical + "/"},
+			{"explorer url with sequence suffix", "https://stellar.expert/explorer/public/asset/" + canonical + "-1"},
+		}
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				a, err := scan.ParseAsset(tc.in)
+				if err != nil {
+					t.Fatalf("ParseAsset(%q): %v", tc.in, err)
+				}
+				if a.Code != "USDC" || a.Issuer != issuer {
+					t.Fatalf("ParseAsset(%q) = %+v, want USDC/%s", tc.in, a, issuer)
+				}
+				if a.String() != canonical {
+					t.Errorf("ParseAsset(%q) renders %q, want the canonical form %q", tc.in, a.String(), canonical)
+				}
+			})
+		}
+	})
+
+	// Evidence and preimage bytes must be identical whichever spelling was
+	// typed: the hash commits to the canonical CODE-ISSUER, never to the
+	// argument's shape.
+	t.Run("preimage is spelling independent", func(t *testing.T) {
+		want := assetPreimage(t, "USDC-"+issuer)
+		for _, in := range []string{
+			"USDC:" + issuer,
+			"  USDC-" + issuer + "  ",
+			"https://stellar.expert/explorer/public/asset/USDC-" + issuer,
+			"stellar.expert/explorer/public/asset/USDC-" + issuer,
+			"https://stellar.expert/explorer/testnet/asset/USDC-" + issuer + "-1",
+		} {
+			if got := assetPreimage(t, in); got != want {
+				t.Errorf("ParseAsset(%q) preimage differs from the canonical input's:\n got %q\nwant %q",
+					in, got, want)
+			}
+		}
+	})
+
 	t.Run("rejected", func(t *testing.T) {
 		for _, in := range []string{
 			"",
@@ -57,6 +127,16 @@ func TestParseAsset(t *testing.T) {
 			"USDC-" + "ga5zsejyb37jrc5avcia5mop4rhtm335x2kgx3ihojapp5re34k4kzvn",
 			"TOOLONGASSETCODE-" + issuer,
 			"US DC-" + issuer,
+			// A colon in a bare identifier is the separator, not a typo: the
+			// half after it still has to be a key.
+			"USDC:NOTAKEY",
+			// A URL spelling is accepted only from the explorer that prints
+			// it, and only where its path names an asset.
+			"https://example.com/explorer/public/asset/USDC-" + issuer,
+			"stellar.expert/explorer/public/accounts/" + issuer,
+			"https://stellar.expert/explorer/public/asset/",
+			"https://stellar.expert/explorer/public",
+			"web+stellar:pay?destination=" + issuer,
 		} {
 			if _, err := scan.ParseAsset(in); !errors.Is(err, scan.ErrBadAsset) {
 				t.Errorf("ParseAsset(%q) error = %v, want ErrBadAsset", in, err)
@@ -84,6 +164,21 @@ func TestParseAsset(t *testing.T) {
 			}
 		}
 	})
+}
+
+// assetPreimage parses in and renders the attestation preimage the parsed
+// asset would hash into, so a test can compare spellings byte for byte.
+func assetPreimage(t *testing.T, in string) string {
+	t.Helper()
+	a, err := scan.ParseAsset(in)
+	if err != nil {
+		t.Fatalf("ParseAsset(%q): %v", in, err)
+	}
+	pre, err := attest.Preimage(&mechanics.Report{Asset: a})
+	if err != nil {
+		t.Fatalf("Preimage(%q): %v", in, err)
+	}
+	return pre
 }
 
 // fakeSources stands up stand-ins for Horizon, StellarExpert, and the issuer's
@@ -119,7 +214,7 @@ func newFakeSources(t *testing.T) *fakeSources {
 						"asset_type":   "credit_alphanum4",
 						"asset_code":   "USDC",
 						"asset_issuer": scanIssuer,
-						"flags":        map[string]bool{},
+						"flags":        horizonFlagsStub,
 					}},
 				},
 			})
@@ -127,7 +222,7 @@ func newFakeSources(t *testing.T) *fakeSources {
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"account_id":  scanIssuer,
 				"home_domain": scanHomeDom,
-				"flags":       map[string]bool{},
+				"flags":       horizonFlagsStub,
 			})
 		default:
 			http.NotFound(w, r)
@@ -547,14 +642,14 @@ func TestSubjectRecordsSkippedBlocklistWhenNoHomeDomain(t *testing.T) {
 					"asset_type":   "credit_alphanum4",
 					"asset_code":   "USDC",
 					"asset_issuer": scanIssuer,
-					"flags":        map[string]bool{},
+					"flags":        horizonFlagsStub,
 				}}},
 			})
 		case "/accounts/" + scanIssuer:
 			// No home_domain at all — the VELO shape.
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"account_id": scanIssuer,
-				"flags":      map[string]bool{},
+				"flags":      horizonFlagsStub,
 			})
 		default:
 			http.NotFound(w, r)

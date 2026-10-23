@@ -78,8 +78,8 @@ type diffSide struct {
 func runDiff(args []string, d commandDeps) error {
 	fs := flag.NewFlagSet("diff", flag.ContinueOnError)
 	asJSON := fs.Bool("json", false, "print the comparison as JSON for scripting")
-	if err := fs.Parse(args); err != nil {
-		return fmt.Errorf("diff: %w", err)
+	if err := parseFlags(fs, args); err != nil {
+		return err
 	}
 	if fs.NArg() != 2 {
 		return fmt.Errorf("diff takes exactly two saved reports (A.json B.json)")

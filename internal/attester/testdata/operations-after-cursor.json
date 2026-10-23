@@ -1,0 +1,67 @@
+{
+  "_links": {},
+  "_embedded": {
+    "records": [
+      {
+        "id": "250000000000000001",
+        "paging_token": "250000000000000001",
+        "transaction_successful": true,
+        "source_account": "GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ",
+        "type": "payment",
+        "type_i": 1,
+        "created_at": "2026-10-20T09:00:00Z",
+        "transaction_hash": "aa00000000000000000000000000000000000000000000000000000000000001",
+        "asset_type": "credit_alphanum12",
+        "amount": "10.0000000"
+      },
+      {
+        "id": "250000000000000002",
+        "paging_token": "250000000000000002",
+        "transaction_successful": false,
+        "source_account": "GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ",
+        "type": "set_options",
+        "type_i": 5,
+        "created_at": "2026-10-20T09:05:00Z",
+        "transaction_hash": "aa00000000000000000000000000000000000000000000000000000000000002",
+        "set_flags": [8],
+        "set_flags_s": ["auth_clawback_enabled"]
+      },
+      {
+        "id": "250000000000000003",
+        "paging_token": "250000000000000003",
+        "transaction_successful": true,
+        "source_account": "GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ",
+        "type": "set_options",
+        "type_i": 5,
+        "created_at": "2026-10-20T09:10:00Z",
+        "transaction_hash": "aa00000000000000000000000000000000000000000000000000000000000003",
+        "clear_flags": [4],
+        "clear_flags_s": ["auth_immutable"]
+      },
+      {
+        "id": "250000000000000004",
+        "paging_token": "250000000000000004",
+        "transaction_successful": true,
+        "source_account": "GB7TAYRUZGE6TVT7NHP5SMIZRNQA6PLM423EYISAOAP3MKYIQMVYP2JO",
+        "type": "set_options",
+        "type_i": 5,
+        "created_at": "2026-10-20T09:15:00Z",
+        "transaction_hash": "aa00000000000000000000000000000000000000000000000000000000000004",
+        "set_flags": [2],
+        "set_flags_s": ["auth_revocable"]
+      },
+      {
+        "id": "250000000000000005",
+        "paging_token": "250000000000000005",
+        "transaction_successful": true,
+        "source_account": "GA22QHSHQEHDJS2ZOINSC77XPPQ24G5EFRJGVEIZLKC5FAW3PQ5XNSDQ",
+        "type": "set_options",
+        "type_i": 5,
+        "created_at": "2026-10-20T09:20:00Z",
+        "transaction_hash": "aa00000000000000000000000000000000000000000000000000000000000005",
+        "set_flags": [2, 8],
+        "set_flags_s": ["auth_revocable", "auth_clawback_enabled"]
+      }
+    ]
+  }
+}

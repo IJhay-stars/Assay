@@ -348,6 +348,7 @@ func TestABIDriftIntegratorCrate(t *testing.T) {
 		"MECH_BLOCKLISTED",
 		"CAPABILITY_MASK",
 		"CONFISCATION_MASK",
+		"MAX_ATTESTORS",
 	}
 	for _, name := range names {
 		want, ok := registry[name]

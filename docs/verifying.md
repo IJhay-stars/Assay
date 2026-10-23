@@ -282,6 +282,35 @@ The hash commits to the severity and the flags along with the evidence, so a
 matching hash with a differing severity cannot happen for an honest attestation;
 if you see it, you are comparing against the wrong record or the wrong network.
 
+### Optional: re-derive the issuer flags through a second ledger route
+
+Steps 3–5 compare Assay with itself: the same fetch-and-parse path produces both
+the evidence and the hash. A bug in that path can therefore produce a
+consistent, self-agreeing, wrong answer. `-differential` adds one independent
+reading of the fact every severity rests on — the issuer's authorization flags
+— through Soroban RPC rather than Horizon:
+
+```sh
+./assay verify -differential CODE-ISSUER
+./assay verify -differential -rpc https://rpc.example CODE-ISSUER   # non-default endpoint
+```
+
+It runs alongside steps 3–5, not instead of them, and the JSON verdict gains a
+`differential` object. The four states are the ones in
+[differential.md](differential.md):
+
+| State | What it means | What to do |
+| --- | --- | --- |
+| `agreement` | Horizon and Soroban RPC read the same flags | nothing; this is the only state that verifies the flag reading |
+| `disagreement` | both answered, differently | stop and investigate both values; verification exits 1 even if the hash agreed, and neither side is chosen for you |
+| `inconclusive_one_side` | exactly one route produced a reading | retry or verify on another host; an absence is not agreement |
+| `inconclusive_both_sides` | neither route produced a reading | nothing about the flags was verified; retry when the sources recover |
+
+An inconclusive differential read does not change the hash verdict's exit code,
+but it must never be read as agreement. A disagreement is a hard failure: it is
+the one signal that no single-source comparison can produce, and it can mean
+either the scanner misread the ledger or one of the two services is wrong.
+
 ### 6. Interpret
 
 **valid — the hashes match.** The stored severity and flags are exactly the ones

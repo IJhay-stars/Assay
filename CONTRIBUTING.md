@@ -5,6 +5,10 @@ have found a way to make Assay under-report risk, that is a security issue —
 see [SECURITY.md](SECURITY.md) and report it privately rather than opening an
 issue.
 
+**New here?** [docs/first-15-minutes.md](docs/first-15-minutes.md) walks the
+first loop (test, scan, read a report, run the eval, pick an issue) in about
+fifteen minutes. This page is the full reference.
+
 ## Ground rules
 
 Assay makes claims about whether someone's money can be taken. Two rules
@@ -73,15 +77,27 @@ the reason to have a check at all is that it knows when that is fine.
 
 ## Development
 
-Go development requires Go 1.26.9 or later. The `go` directive in
+Go development requires Go 1.26.10 or later. The `go` directive in
 `go.mod` is the source of truth for the minimum version.
 
 ```sh
+make help     # list every target and what it does
+make doctor   # compare the local toolchain with the repo's pins (read-only)
 make test     # tests with -race -shuffle=on
 make lint     # golangci-lint
 make cover    # per-package coverage table, lowest first
 make run      # start the API on :8080
 ```
+
+`make` with no target prints the same help. `make doctor` reports OK or
+MISMATCH for Go, rustc, the wasm target, the `stellar` CLI and ShellCheck; a
+MISMATCH names both the pinned and the installed version, and the check never
+installs anything.
+
+A dev container definition lives in [.devcontainer](.devcontainer). It installs
+Go, the Rust channel and targets from `assay-contracts/rust-toolchain.toml`,
+and the `stellar` CLI version from the toolchain table below, so the versions
+are read from the repo's pins rather than repeated in the container file.
 
 Shell scripts are checked with ShellCheck at warning severity in CI. Run the
 same check locally from the repository root:
@@ -104,18 +120,20 @@ make read   ASSET=CODE-ISSUER   # read it back with get_safety
 
 ### Go toolchain
 
-The module's Go floor lives in `go.mod` (`go 1.26.9`) and nowhere else: every
+The module's Go floor lives in `go.mod` (`go 1.26.10`) and nowhere else: every
 CI job reads it with `go-version-file: go.mod`, so raising the floor raises
 every job at once. `setup-go` also exports `GOTOOLCHAIN=local`, so a job
 running below the floor fails rather than quietly downloading a newer Go.
 
-The floor is **1.26.9** because Go 1.25 is end-of-life and `govulncheck`
-reports reachable standard-library vulnerabilities in its `net/http` —
-GO-2026-6617 and GO-2026-6613 among them — both on the paths Assay uses to
-fetch attacker-controlled `stellar.toml` documents. The floor was raised from
-`1.22` to `1.25.13` on 2026-10-06 and from `1.25.13` to `1.26.9` on
-2026-10-16, each time as a deliberate commit recorded here. Raise it the same
-way, and verify before and after:
+The floor is **1.26.10** because Go 1.25 is end-of-life and `govulncheck`
+reports reachable standard-library vulnerabilities in `net/http` (GO-2026-6617
+and GO-2026-6613 among them) and in `crypto/x509` (GO-2026-6809, fixed in
+1.26.10). These are on paths Assay uses to fetch attacker-controlled
+`stellar.toml` documents and to verify TLS certificates. The floor was raised
+from `1.22` to `1.25.13` on 2026-10-06, from `1.25.13` to `1.26.9` on
+2026-10-16, and from `1.26.9` to `1.26.10` on 2026-10-21, each time as a
+deliberate commit recorded here. Raise it the same way, and verify before and
+after:
 
 ```sh
 go run golang.org/x/vuln/cmd/govulncheck@latest ./...
@@ -138,27 +156,25 @@ source. Three versions decide the optimized bytes:
 | Rust target | `wasm32v1-none` |
 | `soroban-sdk` | 27.0.5 |
 
-**The Rust compiler channel is not pinned.** There is no
-`assay-contracts/rust-toolchain.toml` yet ([#127](https://github.com/use-assay/Assay/issues/127)),
-so `rustup` selects whichever channel happens to be installed, and the
-compiler version changes the optimized bytes: the same source under the same
-`stellar` CLI hashes differently on rustc 1.95.0 and rustc 1.98.1. Until that
-pin exists, a build here cannot be expected to reproduce a hash recorded in
-[docs/deployment.md](docs/deployment.md), and `make verify-wasm` reports
-`unpinned` and exits 2 rather than guessing — see
-[docs/deployment.md](docs/deployment.md#does-the-source-still-build-what-is-deployed).
-Check the environment before any contract work:
+The Rust compiler channel is pinned in
+`assay-contracts/rust-toolchain.toml`, together with the `rustfmt` and `clippy`
+components and the `wasm32v1-none` target. `rustup` reads that file for every
+command run under `assay-contracts/`, so CI and a local checkout build with the
+same compiler; a version change is a deliberate commit rather than whatever
+`stable` happens to be. The compiler version changes the optimized bytes: the
+same source under the same `stellar` CLI hashes differently on rustc 1.95.0 and
+rustc 1.98.1. Check the environment before any contract work:
 
 ```sh
 stellar --version && rustup target list --installed && make build-contract
 ```
 
-`stellar --version` must print 27.1.0 and the target list must contain
-`wasm32v1-none`; `make build-contract` then writes the optimized wasm to
-`assay-contracts/out/`. A mismatch on any of the three changes the optimized
-bytes, and therefore the hash, even when the contract source is byte for byte
-identical — the CLI also runs the wasm optimizer and checks the exported
-interface, so it is not a pass-through to `cargo build`. If
+`stellar --version` must match `STELLAR_CLI_VERSION` in the Makefile. The target
+list must contain `wasm32v1-none`; `make build-contract` then writes the
+optimized wasm to `assay-contracts/out/`. A mismatch on any of the three changes
+the optimized bytes, and therefore the hash, even when the contract source is
+byte for byte identical — the CLI also runs the wasm optimizer and checks the
+exported interface, so it is not a pass-through to `cargo build`. If
 `sha256sum assay-contracts/out/assay_safety_registry.wasm` does not match the
 [recorded wasm hash](docs/deployment.md#live-addresses), check these versions
 before suspecting a source change — and note that a mismatch is only evidence
@@ -283,6 +299,8 @@ Semantics, matching the script's exit codes:
   says `INCONCLUSIVE`, not `PASS`.
 - A run can produce several outcomes; the exit code is the most severe:
   **1 (evidence drift) > 3 (encoding drift) > 2 (inconclusive) > 0**.
+- **Responding to a failure:** classify it and act per the runbook in
+  [docs/reproducibility-mismatch.md](docs/reproducibility-mismatch.md).
 - **stale — n/a.** The hash commits to what the sources claimed, not to when
   they were asked, so attestation age is irrelevant to this comparison.
   Freshness policy lives in [docs/freshness.md](docs/freshness.md).
@@ -444,6 +462,25 @@ description's job to record.**
 If the corpus of safety-critical branches grows to the point that the manual
 run is skipped in practice, reopen the decision — a standing measurement that
 nobody runs is worse than none.
+
+## Changelog
+
+[CHANGELOG.md](CHANGELOG.md) records the history of the four surfaces that
+move independently: the evidence encoding (`evidence_hash` preimage versions),
+the contract ABI, the CLI and HTTP API, and the deployments.
+
+If your PR changes one of those surfaces, add a dated entry at the top of the
+matching section in the same PR. An entry is one bullet: the date it lands,
+what changed, and the issue or PR that decided it — match the style of the
+entries already there. Two rules the file states and a review will enforce:
+
+- **An ABI entry is not a deployment entry.** Adding an entrypoint changes
+  the source; the contracts on testnet change only when a redeploy is
+  recorded under Deployments. Record the level your PR actually changed.
+- **A preimage entry never rewrites history.** New encoding versions add a
+  tag; bytes written under an older tag keep meaning what they meant. If
+  your change would make an existing tag mean something new, that is the
+  bug, not a changelog entry.
 
 ## Commits
 

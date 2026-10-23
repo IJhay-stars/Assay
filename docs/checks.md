@@ -145,12 +145,26 @@ would let any domain claim any asset — the exact impersonation this check
 exists to catch — so both must match.
 
 Two states are decided before any toml is fetched. **No `home_domain` at all**
-means nobody has claimed the asset: accountability is `unknown`, and the
-reasoning says so plainly — an absent claim is not a failed one. **A
-`home_domain` that disagrees with the curated directory's `domain`** is
-reported as `unverified` with both claims attributed to their source and URL,
-because a holder cannot tell a benign brand migration from an impersonation
-setup while the two sources simply contradict each other.
+means nobody has claimed the asset: accountability is `unknown` with reason
+`no_home_domain`, and the reasoning says so plainly — an absent claim is not a
+failed one. **A `home_domain` that disagrees with the curated directory's
+`domain`** is reported as `unverified` with reason `mismatch`, with both claims
+attributed to their source and URL, because a holder cannot tell a benign brand
+migration from an impersonation setup while the two sources simply contradict
+each other.
+
+Once a toml is in play, the split is reported in `accountability_reason`, so a
+consumer switching on the JSON fields can tell the cases apart without reading
+the reasoning text:
+
+- `fetch_failed` — the toml could not be read (HTTP failure, DNS failure, or a
+  host-policy refusal). "We could not check" is not "this is fine".
+- `not_claimed` — the toml resolved but does not list this code and issuer. The
+  domain has not claimed the asset.
+- `mismatch` — the advertised `home_domain` and the curated directory's
+  `domain` disagree about who claims the asset.
+- `no_home_domain` — the issuer advertises no `home_domain`; accountability is
+  `unknown`, not `unverified`, because there was no claim to test.
 
 Verification failures are reported verbatim, including the HTTP status. "We
 could not check" and "this is fine" are different answers and must never render
@@ -212,6 +226,31 @@ acceptable cost.
 **Exceeding the bound, or a refused cross-host redirect, is an error naming the
 final host** — not a silent 404 and not a claim. A document served by a
 disallowed host is never treated as this domain's claim.
+
+### A document that names another network
+
+SEP-0001 lets a toml declare which network its currencies belong to
+(`NETWORK_PASSPHRASE`). When the scan is bound to a network and the document
+declares a different one, the finding carries an attributed evidence entry
+quoting both values, and nothing else changes.
+
+The reason it is reported at all is the one network binding already rests on:
+the same CODE-ISSUER exists independently on every network, with different
+flags and different balances. A document that declares the testnet passphrase
+while the scan read pubnet is stale, published for another network, or
+impersonating an issuer — worth surfacing in every case, and attributable to
+the document the same way every other issuer claim is: source, URL, retrieval
+time.
+
+The reason it moves nothing else is the same discipline every field here
+follows. Severity stays capability-only; an issuer can neither buy nor lose a
+level through a passphrase. Accountability was settled by the reciprocity
+test, not by this field. And absence is not a mismatch: the key is optional,
+a document that declares it has made a claim, and only a claimed value can be
+contradicted — so a toml that omits it, or a scan that was never bound to a
+network, contributes no evidence, and the evidence bytes — and therefore
+`evidence_hash` — are unchanged for every report without a declared
+contradiction.
 
 **Cannot conclude:** that a verified issuer is honest. It establishes that a
 named party has published a claim, nothing more. A scammer can register a domain

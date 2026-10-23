@@ -27,7 +27,7 @@ GET /api/v1/history?asset=CODE-ISSUER  →  read the recorded observations, deri
 
 A scan that fails (the asset is not on the ledger, Horizon is down) records
 nothing. A scan that succeeds but is `undetermined` **is** recorded, marked, and
-returned — see [undetermined](#unknown-an-observation-is-incomplete).
+returned — see [undetermined](#unknown--an-observation-is-incomplete).
 
 Nothing schedules scans. History grows exactly as fast as someone scans, and
 this document does not claim otherwise.
