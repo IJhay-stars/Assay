@@ -58,14 +58,15 @@ jobs:
         working-directory: assay-contracts
         run: rustup toolchain install
 
-      # Use protocol 28 for the Soroban SDK 28 contracts and keep Quickstart
-      # pinned so its Core/RPC versions cannot drift independently.
+      # Soroban SDK 29 emits protocol-29 contracts. Use the current stable
+      # Quickstart image and explicitly run the local ledger at protocol 29;
+      # protocol 28 hosts reject these WASM files during simulation.
       - name: start local Stellar network
         uses: stellar/quickstart@main
         with:
-          tag: v676-b1505.1-latest
+          tag: latest
           network: local
-          protocol_version: "28"
+          protocol_version: "29"
           enable: core,rpc,horizon
           enable_logs: "false"
 
