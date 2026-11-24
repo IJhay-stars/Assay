@@ -1,14 +1,14 @@
 # Multi-attestor writes
 
-**Status: design, for review. Nothing here is implemented.** This document
-answers [#88](https://github.com/use-assay/Assay/issues/88). It compares ways
-to remove the single-admin trust root, says what each costs, and recommends
-one. Implementation is filed separately once a scheme is agreed. The contract
-is not changed by this document.
+**Status: Scheme C is implemented in the registry.** This document answers
+[#88](https://github.com/use-assay/Assay/issues/88), records the design
+rationale, and compares the alternatives and their costs. The implementation
+lives in the safety registry; this document does not change its contract.
 
 ## The problem
 
-Today `init` sets one admin, and `attest` and `revoke` accept only that admin.
+Before Scheme C, `init` set one admin, and `attest` and `revoke` accepted only
+that admin.
 A consumer calling `is_safe` is trusting one ed25519 key on one machine
 ([deployment.md](deployment.md#what-this-deployment-is-not)). That is the
 largest single trust assumption in Assay, and it is what has to change before
@@ -196,10 +196,61 @@ raised, never lowered.
   causes denial of service for every consumer that names it, visibly. Anyone
   can write, so storage grows with writers, but rent is paid by the writer and
   consumers read only the entries they name.
-- **Cost:** a quorum read touches up to N entries instead of one. At N ≤ 5 this
-  is small next to the call it protects, but it must be measured against the
-  Soroban read budget before an ABI is fixed. Each attestor pays its own rent
-  and TTL extension ([deployment.md](deployment.md#entry-lifetime)).
+- **Cost:** a quorum read touches up to N entries instead of one. The read
+  budget was measured at N = 1, 2, 4, 8, and 16 in the prototype below. Each
+  attestor pays its own rent and TTL extension
+  ([deployment.md](deployment.md#entry-lifetime)).
+
+## Scheme C read-budget prototype
+
+Measured 2026-11-24 with `soroban-sdk` 28.0.0's `Env::cost_estimate()` after
+each top-level `quorum` invocation. The scratch contract at
+[`assay-contracts/scratch/quorum-budget`](../assay-contracts/scratch/quorum-budget)
+uses the proposed persistent `(attestor, asset)` key, stores the same fields
+as `Safety` (including the 32-byte evidence hash), reads each supplied
+attestor once, and computes max severity, unioned flags, and disagreement.
+Seed writes happen before the measured invocation. Every record is present and
+fresh, so this is the all-responding path and exercises the full aggregation.
+
+| Attestors (N) | CPU instructions | Memory (bytes) | Attestation entries read | Total read entries* |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 31,559 | 4,366 | 1 | 2 |
+| 2 | 52,595 | 6,218 | 2 | 3 |
+| 4 | 94,868 | 9,997 | 4 | 5 |
+| 8 | 185,212 | 17,855 | 8 | 9 |
+| 16 | 382,433 | 34,771 | 16 | 17 |
+
+\* `total read entries` is the SDK resource count
+`disk_read_entries + memory_read_entries`; it includes one fixed entry in
+addition to the N attestation entries. The host test ledger reports these as
+memory reads (`disk_read_entries = 0`). On a network invocation, the persistent
+attestation entries are disk reads; the number of entries is unchanged.
+
+The CPU and memory figures are the SDK budget fields `instructions` and
+`mem_bytes`, not wall-clock timings or process RSS. These are per invocation
+measurements in the SDK's default test host, which enforces its configured
+invocation limits. Results describe the Scheme C read and aggregation path;
+they do not include the rest of a consumer transaction.
+
+### Recommended cap: 16 attestors
+
+Recommend a hard ABI cap of **16**. At that cap the measured call reads 17
+entries, or 4.25% of the 400-entry transaction footprint limit used by the
+current Soroban SDK limits, and consumes 0.096% of the 400,000,000-instruction
+limit and 0.083% of the 41,943,040-byte memory limit. Read entries are the
+binding resource: this cap leaves 383 footprint entries for the consumer's
+other contract calls and transaction data, while CPU and memory retain much
+more headroom. Sixteen also has a direct measurement; the cap does not assume
+that an unmeasured larger N is safe for callers.
+
+The benchmark can be rerun from `assay-contracts/` with:
+
+```sh
+cargo test --manifest-path scratch/quorum-budget/Cargo.toml -- --nocapture
+```
+
+The prototype is intentionally excluded from the deployable Cargo workspace
+and does not modify the safety registry or its ABI.
 
 ## Comparison
 
